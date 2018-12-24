@@ -16,7 +16,8 @@
 
 'use strict';
 
-var DEFAULT_URL = 'compressed.tracemonkey-pldi-09.pdf';
+var DEFAULT_URL = 'demo.pdf';
+// var DEFAULT_URL = 'compressed.tracemonkey-pldi-09.pdf';
 
 if (typeof PDFJSDev !== 'undefined' && PDFJSDev.test('CHROME')) {
   (function rewriteUrlClosure() {
@@ -75,6 +76,9 @@ function getViewerConfiguration() {
       presentationModeButton: document.getElementById('presentationMode'),
       download: document.getElementById('download'),
       viewBookmark: document.getElementById('viewBookmark'),
+      toolbarPageRotateCw: document.getElementById('toolbarPageRotateCw'),
+      toolbarPageRotateCcw: document.getElementById('toolbarPageRotateCcw'),
+      toolbarToggleHandTool: document.getElementById('toolbarToggleHandTool'),
     },
     secondaryToolbar: {
       toolbar: document.getElementById('secondaryToolbar'),

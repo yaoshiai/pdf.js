@@ -1002,14 +1002,17 @@ html[dir="rtl"] .secondaryToolbarButton > span {
   content: url(images/secondaryToolbarButton-lastPage.png);
 }
 
+.toolbarButton.rotateCcw::before,
 .secondaryToolbarButton.rotateCcw::before {
   content: url(images/secondaryToolbarButton-rotateCcw.png);
 }
 
+.toolbarButton.rotateCw::before,
 .secondaryToolbarButton.rotateCw::before {
   content: url(images/secondaryToolbarButton-rotateCw.png);
 }
 
+.toolbarButton.handTool::before,
 .secondaryToolbarButton.handTool::before {
   content: url(images/secondaryToolbarButton-handTool.png);
 }
@@ -1827,10 +1830,22 @@ html[dir='rtl'] #documentPropertiesOverlay .row > * {
   }
 }
 
+/*.visibleXLargeView,*/
 .visibleLargeView,
 .visibleMediumView,
 .visibleSmallView {
   display: none;
+}
+
+@media all and (max-width: 1040px) {
+  #outerContainer.sidebarMoving #toolbarViewerMiddle,
+  #outerContainer.sidebarOpen #toolbarViewerMiddle {
+    display: table;
+    margin: auto;
+    left: auto;
+    position: inherit;
+    transform: none;
+  }
 }
 
 @media all and (max-width: 1040px) {

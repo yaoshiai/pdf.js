@@ -175,6 +175,16 @@ var Toolbar = (function ToolbarClosure() {
         eventBus.dispatch('download');
       });
 
+      items.toolbarPageRotateCw.addEventListener('click', function (e) {
+        eventBus.dispatch('rotatecw');
+      });
+      items.toolbarPageRotateCcw.addEventListener('click', function (e) {
+        eventBus.dispatch('rotateccw');
+      });
+      items.toolbarToggleHandTool.addEventListener('click', function (e) {
+        eventBus.dispatch('togglehandtool');
+      });
+
       // Suppress context menus for some controls
       items.scaleSelect.oncontextmenu = noContextMenuHandler;
 
