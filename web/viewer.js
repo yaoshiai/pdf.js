@@ -16,7 +16,7 @@
 
 'use strict';
 
-var DEFAULT_URL = 'demo.pdf';
+var DEFAULT_URL = 'files/彭吉商业保理融资分期服务合同.pdf';
 // var DEFAULT_URL = 'compressed.tracemonkey-pldi-09.pdf';
 
 if (typeof PDFJSDev !== 'undefined' && PDFJSDev.test('CHROME')) {

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>testIframe</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="google" content="notranslate">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <style>
+    html{
+      margin:0;
+      padding:0;
+      height: 100%;
+      width: 100%;
+      font-size: 10px;
+    }
+
+    body{
+      margin:0;
+      padding:0;
+      font: message-box;
+      outline: none;
+      height: 99%;
+      width: 100%;
+    }
+
+    .pdf-container{
+      height: 100%;
+      width: 100%;
+      border:0;
+      margin:0;
+      padding:0;
+    }
+    @media print {
+      html,body{
+        height:auto;
+      }
+      .pdf-container{
+        height:auto;
+      }
+    }
+  </style>
+</head>
+<body>
+<iframe class="pdf-container" src="./viewer.html" frameborder="0"></iframe>
+</body>
+</html>

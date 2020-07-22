@@ -159,7 +159,6 @@
       }.bind(this);
       return new Promise(renderNextPage);
     },
-
     useRenderedPage: function (printItem) {
       this.throwIfInactive();
       var img = document.createElement('img');
@@ -176,6 +175,7 @@
         img.src = scratchCanvas.toDataURL();
       }
 
+      this.printContainer.appendChild(img);
       var wrapper = document.createElement('div');
       wrapper.appendChild(img);
       this.printContainer.appendChild(wrapper);
