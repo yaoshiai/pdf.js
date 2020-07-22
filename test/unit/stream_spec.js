@@ -12,69 +12,67 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-'use strict';
 
-(function (root, factory) {
-  if (typeof define === 'function' && define.amd) {
-    define('pdfjs-test/unit/stream_spec', ['exports',
-           'pdfjs/core/primitives', 'pdfjs/core/stream'], factory);
-  } else if (typeof exports !== 'undefined') {
-    factory(exports, require('../../src/core/primitives.js'),
-            require('../../src/core/stream.js'));
-  } else {
-    factory((root.pdfjsTestUnitStreamSpec = {}), root.pdfjsCorePrimitives,
-             root.pdfjsCoreStream);
-  }
-}(this, function (exports, corePrimitives, coreStream) {
+import { PredictorStream, Stream } from "../../src/core/stream.js";
+import { Dict } from "../../src/core/primitives.js";
 
-var Dict = corePrimitives.Dict;
-var Stream = coreStream.Stream;
-var PredictorStream = coreStream.PredictorStream;
-
-describe('stream', function() {
-  beforeEach(function() {
+describe("stream", function () {
+  beforeEach(function () {
     jasmine.addMatchers({
-      toMatchTypedArray: function(util, customEqualityTesters) {
+      toMatchTypedArray(util, customEqualityTesters) {
         return {
-          compare: function (actual, expected) {
+          compare(actual, expected) {
             var result = {};
             if (actual.length !== expected.length) {
               result.pass = false;
-              result.message = 'Array length: ' + actual.length +
-                ', expected: ' + expected.length;
+              result.message =
+                "Array length: " +
+                actual.length +
+                ", expected: " +
+                expected.length;
               return result;
             }
             result.pass = true;
             for (var i = 0, ii = expected.length; i < ii; i++) {
-              var a = actual[i], b = expected[i];
+              var a = actual[i],
+                b = expected[i];
               if (a !== b) {
                 result.pass = false;
                 break;
               }
             }
             return result;
-          }
+          },
         };
-      }
+      },
     });
   });
-  describe('PredictorStream', function() {
-    it('should decode simple predictor data', function() {
+  describe("PredictorStream", function () {
+    it("should decode simple predictor data", function () {
       var dict = new Dict();
-      dict.set('Predictor', 12);
-      dict.set('Colors', 1);
-      dict.set('BitsPerComponent', 8);
-      dict.set('Columns', 2);
+      dict.set("Predictor", 12);
+      dict.set("Colors", 1);
+      dict.set("BitsPerComponent", 8);
+      dict.set("Columns", 2);
 
-      var input = new Stream(new Uint8Array([2, 100, 3, 2, 1, 255, 2, 1, 255]),
-                             0, 9, dict);
+      var input = new Stream(
+        new Uint8Array([2, 100, 3, 2, 1, 255, 2, 1, 255]),
+        0,
+        9,
+        dict
+      );
       var predictor = new PredictorStream(input, /* length = */ 9, dict);
       var result = predictor.getBytes(6);
 
       expect(result).toMatchTypedArray(
         new Uint8Array([100, 3, 101, 2, 102, 1])
       );
+
+      predictor.reset();
+      const clampedResult = predictor.getBytes(6, /* forceClamped = */ true);
+      expect(clampedResult).toEqual(
+        new Uint8ClampedArray([100, 3, 101, 2, 102, 1])
+      );
     });
   });
 });
-}));

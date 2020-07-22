@@ -12,28 +12,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/* globals global, process, __pdfjsdev_webpack__ */
+/* eslint no-var: error */
 
-'use strict';
+import "./compatibility.js";
 
-(function (root, factory) {
-  if (typeof define === 'function' && define.amd) {
-    define('pdfjs/shared/util', ['exports', 'pdfjs/shared/compatibility'],
-      factory);
-  } else if (typeof exports !== 'undefined') {
-    factory(exports, require('./compatibility.js'));
-  } else {
-    factory((root.pdfjsSharedUtil = {}), root.pdfjsSharedCompatibility);
-  }
-}(this, function (exports, compatibility) {
+const IDENTITY_MATRIX = [1, 0, 0, 1, 0, 0];
+const FONT_IDENTITY_MATRIX = [0.001, 0, 0, 0.001, 0, 0];
 
-var globalScope = (typeof window !== 'undefined') ? window :
-                  (typeof global !== 'undefined') ? global :
-                  (typeof self !== 'undefined') ? self : this;
+// Permission flags from Table 22, Section 7.6.3.2 of the PDF specification.
+const PermissionFlag = {
+  PRINT: 0x04,
+  MODIFY_CONTENTS: 0x08,
+  COPY: 0x10,
+  MODIFY_ANNOTATIONS: 0x20,
+  FILL_INTERACTIVE_FORMS: 0x100,
+  COPY_FOR_ACCESSIBILITY: 0x200,
+  ASSEMBLE: 0x400,
+  PRINT_HIGH_QUALITY: 0x800,
+};
 
-var FONT_IDENTITY_MATRIX = [0.001, 0, 0, 0.001, 0, 0];
-
-var TextRenderingMode = {
+const TextRenderingMode = {
   FILL: 0,
   STROKE: 1,
   FILL_STROKE: 2,
@@ -43,16 +41,16 @@ var TextRenderingMode = {
   FILL_STROKE_ADD_TO_PATH: 6,
   ADD_TO_PATH: 7,
   FILL_STROKE_MASK: 3,
-  ADD_TO_PATH_FLAG: 4
+  ADD_TO_PATH_FLAG: 4,
 };
 
-var ImageKind = {
+const ImageKind = {
   GRAYSCALE_1BPP: 1,
   RGB_24BPP: 2,
-  RGBA_32BPP: 3
+  RGBA_32BPP: 3,
 };
 
-var AnnotationType = {
+const AnnotationType = {
   TEXT: 1,
   LINK: 2,
   FREETEXT: 3,
@@ -78,10 +76,33 @@ var AnnotationType = {
   TRAPNET: 23,
   WATERMARK: 24,
   THREED: 25,
-  REDACT: 26
+  REDACT: 26,
 };
 
-var AnnotationFlag = {
+const AnnotationStateModelType = {
+  MARKED: "Marked",
+  REVIEW: "Review",
+};
+
+const AnnotationMarkedState = {
+  MARKED: "Marked",
+  UNMARKED: "Unmarked",
+};
+
+const AnnotationReviewState = {
+  ACCEPTED: "Accepted",
+  REJECTED: "Rejected",
+  CANCELLED: "Cancelled",
+  COMPLETED: "Completed",
+  NONE: "None",
+};
+
+const AnnotationReplyType = {
+  GROUP: "Group",
+  REPLY: "R",
+};
+
+const AnnotationFlag = {
   INVISIBLE: 0x01,
   HIDDEN: 0x02,
   PRINT: 0x04,
@@ -91,10 +112,10 @@ var AnnotationFlag = {
   READONLY: 0x40,
   LOCKED: 0x80,
   TOGGLENOVIEW: 0x100,
-  LOCKEDCONTENTS: 0x200
+  LOCKEDCONTENTS: 0x200,
 };
 
-var AnnotationFieldFlag = {
+const AnnotationFieldFlag = {
   READONLY: 0x0000001,
   REQUIRED: 0x0000002,
   NOEXPORT: 0x0000004,
@@ -116,55 +137,55 @@ var AnnotationFieldFlag = {
   COMMITONSELCHANGE: 0x4000000,
 };
 
-var AnnotationBorderStyleType = {
+const AnnotationBorderStyleType = {
   SOLID: 1,
   DASHED: 2,
   BEVELED: 3,
   INSET: 4,
-  UNDERLINE: 5
+  UNDERLINE: 5,
 };
 
-var StreamType = {
-  UNKNOWN: 0,
-  FLATE: 1,
-  LZW: 2,
-  DCT: 3,
-  JPX: 4,
-  JBIG: 5,
-  A85: 6,
-  AHX: 7,
-  CCF: 8,
-  RL: 9
+const StreamType = {
+  UNKNOWN: "UNKNOWN",
+  FLATE: "FLATE",
+  LZW: "LZW",
+  DCT: "DCT",
+  JPX: "JPX",
+  JBIG: "JBIG",
+  A85: "A85",
+  AHX: "AHX",
+  CCF: "CCF",
+  RLX: "RLX", // PDF short name is 'RL', but telemetry requires three chars.
 };
 
-var FontType = {
-  UNKNOWN: 0,
-  TYPE1: 1,
-  TYPE1C: 2,
-  CIDFONTTYPE0: 3,
-  CIDFONTTYPE0C: 4,
-  TRUETYPE: 5,
-  CIDFONTTYPE2: 6,
-  TYPE3: 7,
-  OPENTYPE: 8,
-  TYPE0: 9,
-  MMTYPE1: 10
+const FontType = {
+  UNKNOWN: "UNKNOWN",
+  TYPE1: "TYPE1",
+  TYPE1C: "TYPE1C",
+  CIDFONTTYPE0: "CIDFONTTYPE0",
+  CIDFONTTYPE0C: "CIDFONTTYPE0C",
+  TRUETYPE: "TRUETYPE",
+  CIDFONTTYPE2: "CIDFONTTYPE2",
+  TYPE3: "TYPE3",
+  OPENTYPE: "OPENTYPE",
+  TYPE0: "TYPE0",
+  MMTYPE1: "MMTYPE1",
 };
 
-var VERBOSITY_LEVELS = {
-  errors: 0,
-  warnings: 1,
-  infos: 5
+const VerbosityLevel = {
+  ERRORS: 0,
+  WARNINGS: 1,
+  INFOS: 5,
 };
 
-var CMapCompressionType = {
+const CMapCompressionType = {
   NONE: 0,
   BINARY: 1,
   STREAM: 2,
 };
 
 // All the possible operations for an operator list.
-var OPS = {
+const OPS = {
   // Intentionally start from 1 so it is easy to spot bad operators that will be
   // 0's.
   dependency: 1,
@@ -257,13 +278,43 @@ var OPS = {
   paintImageXObjectRepeat: 88,
   paintImageMaskXObjectRepeat: 89,
   paintSolidColorImageMask: 90,
-  constructPath: 91
+  constructPath: 91,
 };
 
-var verbosity = VERBOSITY_LEVELS.warnings;
+const UNSUPPORTED_FEATURES = {
+  /** @deprecated unused */
+  unknown: "unknown",
+  forms: "forms",
+  javaScript: "javaScript",
+  smask: "smask",
+  shadingPattern: "shadingPattern",
+  /** @deprecated unused */
+  font: "font",
+  errorTilingPattern: "errorTilingPattern",
+  errorExtGState: "errorExtGState",
+  errorXObject: "errorXObject",
+  errorFontLoadType3: "errorFontLoadType3",
+  errorFontState: "errorFontState",
+  errorFontMissing: "errorFontMissing",
+  errorFontTranslate: "errorFontTranslate",
+  errorColorSpace: "errorColorSpace",
+  errorOperatorList: "errorOperatorList",
+  errorFontToUnicode: "errorFontToUnicode",
+  errorFontLoadNative: "errorFontLoadNative",
+  errorFontGetPath: "errorFontGetPath",
+};
+
+const PasswordResponses = {
+  NEED_PASSWORD: 1,
+  INCORRECT_PASSWORD: 2,
+};
+
+let verbosity = VerbosityLevel.WARNINGS;
 
 function setVerbosityLevel(level) {
-  verbosity = level;
+  if (Number.isInteger(level)) {
+    verbosity = level;
+  }
 }
 
 function getVerbosityLevel() {
@@ -274,82 +325,55 @@ function getVerbosityLevel() {
 // as warning that Workers were disabled, which is important to devs but not
 // end users.
 function info(msg) {
-  if (verbosity >= VERBOSITY_LEVELS.infos) {
-    console.log('Info: ' + msg);
+  if (verbosity >= VerbosityLevel.INFOS) {
+    console.log(`Info: ${msg}`);
   }
 }
 
 // Non-fatal warnings.
 function warn(msg) {
-  if (verbosity >= VERBOSITY_LEVELS.warnings) {
-    console.log('Warning: ' + msg);
+  if (verbosity >= VerbosityLevel.WARNINGS) {
+    console.log(`Warning: ${msg}`);
   }
 }
 
-// Deprecated API function -- display regardless of the PDFJS.verbosity setting.
-function deprecated(details) {
-  console.log('Deprecated API usage: ' + details);
-}
-
-// Fatal errors that should trigger the fallback UI and halt execution by
-// throwing an exception.
-function error(msg) {
-  if (verbosity >= VERBOSITY_LEVELS.errors) {
-    console.log('Error: ' + msg);
-    console.log(backtrace());
-  }
+function unreachable(msg) {
   throw new Error(msg);
-}
-
-function backtrace() {
-  try {
-    throw new Error();
-  } catch (e) {
-    return e.stack ? e.stack.split('\n').slice(2).join('\n') : '';
-  }
 }
 
 function assert(cond, msg) {
   if (!cond) {
-    error(msg);
+    unreachable(msg);
   }
 }
 
-var UNSUPPORTED_FEATURES = {
-  unknown: 'unknown',
-  forms: 'forms',
-  javaScript: 'javaScript',
-  smask: 'smask',
-  shadingPattern: 'shadingPattern',
-  font: 'font'
-};
-
 // Checks if URLs have the same origin. For non-HTTP based URLs, returns false.
 function isSameOrigin(baseUrl, otherUrl) {
+  let base;
   try {
-    var base = new URL(baseUrl);
-    if (!base.origin || base.origin === 'null') {
+    base = new URL(baseUrl);
+    if (!base.origin || base.origin === "null") {
       return false; // non-HTTP url
     }
   } catch (e) {
     return false;
   }
 
-  var other = new URL(otherUrl, base);
+  const other = new URL(otherUrl, base);
   return base.origin === other.origin;
 }
 
-// Checks if URLs use one of the whitelisted protocols, e.g. to avoid XSS.
-function isValidProtocol(url) {
+// Checks if URLs use one of the allowed protocols, e.g. to avoid XSS.
+function _isValidProtocol(url) {
   if (!url) {
     return false;
   }
   switch (url.protocol) {
-    case 'http:':
-    case 'https:':
-    case 'ftp:':
-    case 'mailto:':
-    case 'tel:':
+    case "http:":
+    case "https:":
+    case "ftp:":
+    case "mailto:":
+    case "tel:":
       return true;
     default:
       return false;
@@ -357,7 +381,8 @@ function isValidProtocol(url) {
 }
 
 /**
- * Attempts to create a valid absolute URL (utilizing `isValidProtocol`).
+ * Attempts to create a valid absolute URL.
+ *
  * @param {URL|string} url - An absolute, or relative, URL.
  * @param {URL|string} baseUrl - An absolute URL.
  * @returns Either a valid {URL}, or `null` otherwise.
@@ -367,174 +392,111 @@ function createValidAbsoluteUrl(url, baseUrl) {
     return null;
   }
   try {
-    var absoluteUrl = baseUrl ? new URL(url, baseUrl) : new URL(url);
-    if (isValidProtocol(absoluteUrl)) {
+    const absoluteUrl = baseUrl ? new URL(url, baseUrl) : new URL(url);
+    if (_isValidProtocol(absoluteUrl)) {
       return absoluteUrl;
     }
-  } catch (ex) { /* `new URL()` will throw on incorrect data. */ }
+  } catch (ex) {
+    /* `new URL()` will throw on incorrect data. */
+  }
   return null;
 }
 
 function shadow(obj, prop, value) {
-  Object.defineProperty(obj, prop, { value: value,
-                                     enumerable: true,
-                                     configurable: true,
-                                     writable: false });
+  Object.defineProperty(obj, prop, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: false,
+  });
   return value;
 }
 
-function getLookupTableFactory(initializer) {
-  var lookup;
-  return function () {
-    if (initializer) {
-      lookup = Object.create(null);
-      initializer(lookup);
-      initializer = null;
+const BaseException = (function BaseExceptionClosure() {
+  // eslint-disable-next-line no-shadow
+  function BaseException(message) {
+    if (this.constructor === BaseException) {
+      unreachable("Cannot initialize BaseException.");
     }
-    return lookup;
-  };
-}
+    this.message = message;
+    this.name = this.constructor.name;
+  }
+  BaseException.prototype = new Error();
+  BaseException.constructor = BaseException;
 
-var PasswordResponses = {
-  NEED_PASSWORD: 1,
-  INCORRECT_PASSWORD: 2
-};
+  return BaseException;
+})();
 
-var PasswordException = (function PasswordExceptionClosure() {
-  function PasswordException(msg, code) {
-    this.name = 'PasswordException';
-    this.message = msg;
+class PasswordException extends BaseException {
+  constructor(msg, code) {
+    super(msg);
     this.code = code;
   }
+}
 
-  PasswordException.prototype = new Error();
-  PasswordException.constructor = PasswordException;
-
-  return PasswordException;
-})();
-
-var UnknownErrorException = (function UnknownErrorExceptionClosure() {
-  function UnknownErrorException(msg, details) {
-    this.name = 'UnknownErrorException';
-    this.message = msg;
+class UnknownErrorException extends BaseException {
+  constructor(msg, details) {
+    super(msg);
     this.details = details;
   }
+}
 
-  UnknownErrorException.prototype = new Error();
-  UnknownErrorException.constructor = UnknownErrorException;
+class InvalidPDFException extends BaseException {}
 
-  return UnknownErrorException;
-})();
+class MissingPDFException extends BaseException {}
 
-var InvalidPDFException = (function InvalidPDFExceptionClosure() {
-  function InvalidPDFException(msg) {
-    this.name = 'InvalidPDFException';
-    this.message = msg;
-  }
-
-  InvalidPDFException.prototype = new Error();
-  InvalidPDFException.constructor = InvalidPDFException;
-
-  return InvalidPDFException;
-})();
-
-var MissingPDFException = (function MissingPDFExceptionClosure() {
-  function MissingPDFException(msg) {
-    this.name = 'MissingPDFException';
-    this.message = msg;
-  }
-
-  MissingPDFException.prototype = new Error();
-  MissingPDFException.constructor = MissingPDFException;
-
-  return MissingPDFException;
-})();
-
-var UnexpectedResponseException =
-    (function UnexpectedResponseExceptionClosure() {
-  function UnexpectedResponseException(msg, status) {
-    this.name = 'UnexpectedResponseException';
-    this.message = msg;
+class UnexpectedResponseException extends BaseException {
+  constructor(msg, status) {
+    super(msg);
     this.status = status;
   }
+}
 
-  UnexpectedResponseException.prototype = new Error();
-  UnexpectedResponseException.constructor = UnexpectedResponseException;
+/**
+ * Error caused during parsing PDF data.
+ */
+class FormatError extends BaseException {}
 
-  return UnexpectedResponseException;
-})();
+/**
+ * Error used to indicate task cancellation.
+ */
+class AbortException extends BaseException {}
 
-var NotImplementedException = (function NotImplementedExceptionClosure() {
-  function NotImplementedException(msg) {
-    this.message = msg;
-  }
-
-  NotImplementedException.prototype = new Error();
-  NotImplementedException.prototype.name = 'NotImplementedException';
-  NotImplementedException.constructor = NotImplementedException;
-
-  return NotImplementedException;
-})();
-
-var MissingDataException = (function MissingDataExceptionClosure() {
-  function MissingDataException(begin, end) {
-    this.begin = begin;
-    this.end = end;
-    this.message = 'Missing data [' + begin + ', ' + end + ')';
-  }
-
-  MissingDataException.prototype = new Error();
-  MissingDataException.prototype.name = 'MissingDataException';
-  MissingDataException.constructor = MissingDataException;
-
-  return MissingDataException;
-})();
-
-var XRefParseException = (function XRefParseExceptionClosure() {
-  function XRefParseException(msg) {
-    this.message = msg;
-  }
-
-  XRefParseException.prototype = new Error();
-  XRefParseException.prototype.name = 'XRefParseException';
-  XRefParseException.constructor = XRefParseException;
-
-  return XRefParseException;
-})();
-
-var NullCharactersRegExp = /\x00/g;
+const NullCharactersRegExp = /\x00/g;
 
 function removeNullCharacters(str) {
-  if (typeof str !== 'string') {
-    warn('The argument for removeNullCharacters must be a string.');
+  if (typeof str !== "string") {
+    warn("The argument for removeNullCharacters must be a string.");
     return str;
   }
-  return str.replace(NullCharactersRegExp, '');
+  return str.replace(NullCharactersRegExp, "");
 }
 
 function bytesToString(bytes) {
-  assert(bytes !== null && typeof bytes === 'object' &&
-         bytes.length !== undefined, 'Invalid argument for bytesToString');
-  var length = bytes.length;
-  var MAX_ARGUMENT_COUNT = 8192;
+  assert(
+    bytes !== null && typeof bytes === "object" && bytes.length !== undefined,
+    "Invalid argument for bytesToString"
+  );
+  const length = bytes.length;
+  const MAX_ARGUMENT_COUNT = 8192;
   if (length < MAX_ARGUMENT_COUNT) {
     return String.fromCharCode.apply(null, bytes);
   }
-  var strBuf = [];
-  for (var i = 0; i < length; i += MAX_ARGUMENT_COUNT) {
-    var chunkEnd = Math.min(i + MAX_ARGUMENT_COUNT, length);
-    var chunk = bytes.subarray(i, chunkEnd);
+  const strBuf = [];
+  for (let i = 0; i < length; i += MAX_ARGUMENT_COUNT) {
+    const chunkEnd = Math.min(i + MAX_ARGUMENT_COUNT, length);
+    const chunk = bytes.subarray(i, chunkEnd);
     strBuf.push(String.fromCharCode.apply(null, chunk));
   }
-  return strBuf.join('');
+  return strBuf.join("");
 }
 
 function stringToBytes(str) {
-  assert(typeof str === 'string', 'Invalid argument for stringToBytes');
-  var length = str.length;
-  var bytes = new Uint8Array(length);
-  for (var i = 0; i < length; ++i) {
-    bytes[i] = str.charCodeAt(i) & 0xFF;
+  assert(typeof str === "string", "Invalid argument for stringToBytes");
+  const length = str.length;
+  const bytes = new Uint8Array(length);
+  for (let i = 0; i < length; ++i) {
+    bytes[i] = str.charCodeAt(i) & 0xff;
   }
   return bytes;
 }
@@ -548,7 +510,7 @@ function arrayByteLength(arr) {
   if (arr.length !== undefined) {
     return arr.length;
   }
-  assert(arr.byteLength !== undefined);
+  assert(arr.byteLength !== undefined, "arrayByteLength - invalid argument.");
   return arr.byteLength;
 }
 
@@ -558,30 +520,27 @@ function arrayByteLength(arr) {
  * @returns {Uint8Array}
  */
 function arraysToBytes(arr) {
+  const length = arr.length;
   // Shortcut: if first and only item is Uint8Array, return it.
-  if (arr.length === 1 && (arr[0] instanceof Uint8Array)) {
+  if (length === 1 && arr[0] instanceof Uint8Array) {
     return arr[0];
   }
-  var resultLength = 0;
-  var i, ii = arr.length;
-  var item, itemLength;
-  for (i = 0; i < ii; i++) {
-    item = arr[i];
-    itemLength = arrayByteLength(item);
-    resultLength += itemLength;
+  let resultLength = 0;
+  for (let i = 0; i < length; i++) {
+    resultLength += arrayByteLength(arr[i]);
   }
-  var pos = 0;
-  var data = new Uint8Array(resultLength);
-  for (i = 0; i < ii; i++) {
-    item = arr[i];
+  let pos = 0;
+  const data = new Uint8Array(resultLength);
+  for (let i = 0; i < length; i++) {
+    let item = arr[i];
     if (!(item instanceof Uint8Array)) {
-      if (typeof item === 'string') {
+      if (typeof item === "string") {
         item = stringToBytes(item);
       } else {
         item = new Uint8Array(item);
       }
     }
-    itemLength = item.byteLength;
+    const itemLength = item.byteLength;
     data.set(item, pos);
     pos += itemLength;
   }
@@ -589,159 +548,106 @@ function arraysToBytes(arr) {
 }
 
 function string32(value) {
-  return String.fromCharCode((value >> 24) & 0xff, (value >> 16) & 0xff,
-                             (value >> 8) & 0xff, value & 0xff);
+  return String.fromCharCode(
+    (value >> 24) & 0xff,
+    (value >> 16) & 0xff,
+    (value >> 8) & 0xff,
+    value & 0xff
+  );
 }
 
-function log2(x) {
-  var n = 1, i = 0;
-  while (x > n) {
-    n <<= 1;
-    i++;
-  }
-  return i;
-}
-
-function readInt8(data, start) {
-  return (data[start] << 24) >> 24;
-}
-
-function readUint16(data, offset) {
-  return (data[offset] << 8) | data[offset + 1];
-}
-
-function readUint32(data, offset) {
-  return ((data[offset] << 24) | (data[offset + 1] << 16) |
-         (data[offset + 2] << 8) | data[offset + 3]) >>> 0;
-}
-
-// Lazy test the endianness of the platform
-// NOTE: This will be 'true' for simulated TypedArrays
+// Checks the endianness of the platform.
 function isLittleEndian() {
-  var buffer8 = new Uint8Array(2);
+  const buffer8 = new Uint8Array(4);
   buffer8[0] = 1;
-  var buffer16 = new Uint16Array(buffer8.buffer);
-  return (buffer16[0] === 1);
+  const view32 = new Uint32Array(buffer8.buffer, 0, 1);
+  return view32[0] === 1;
 }
+const IsLittleEndianCached = {
+  get value() {
+    return shadow(this, "value", isLittleEndian());
+  },
+};
 
 // Checks if it's possible to eval JS expressions.
 function isEvalSupported() {
   try {
-    new Function(''); // eslint-disable-line no-new, no-new-func
+    new Function(""); // eslint-disable-line no-new, no-new-func
     return true;
   } catch (e) {
     return false;
   }
 }
+const IsEvalSupportedCached = {
+  get value() {
+    return shadow(this, "value", isEvalSupported());
+  },
+};
 
-if (typeof PDFJSDev === 'undefined' ||
-    !PDFJSDev.test('FIREFOX || MOZCENTRAL || CHROME')) {
-  var Uint32ArrayView = (function Uint32ArrayViewClosure() {
-    function Uint32ArrayView(buffer, length) {
-      this.buffer = buffer;
-      this.byteLength = buffer.length;
-      this.length = length === undefined ? (this.byteLength >> 2) : length;
-      ensureUint32ArrayViewProps(this.length);
-    }
-    Uint32ArrayView.prototype = Object.create(null);
+const rgbBuf = ["rgb(", 0, ",", 0, ",", 0, ")"];
 
-    var uint32ArrayViewSetters = 0;
-    function createUint32ArrayProp(index) {
-      return {
-        get: function () {
-          var buffer = this.buffer, offset = index << 2;
-          return (buffer[offset] | (buffer[offset + 1] << 8) |
-            (buffer[offset + 2] << 16) | (buffer[offset + 3] << 24)) >>> 0;
-        },
-        set: function (value) {
-          var buffer = this.buffer, offset = index << 2;
-          buffer[offset] = value & 255;
-          buffer[offset + 1] = (value >> 8) & 255;
-          buffer[offset + 2] = (value >> 16) & 255;
-          buffer[offset + 3] = (value >>> 24) & 255;
-        }
-      };
-    }
-
-    function ensureUint32ArrayViewProps(length) {
-      while (uint32ArrayViewSetters < length) {
-        Object.defineProperty(Uint32ArrayView.prototype,
-          uint32ArrayViewSetters,
-          createUint32ArrayProp(uint32ArrayViewSetters));
-        uint32ArrayViewSetters++;
-      }
-    }
-
-    return Uint32ArrayView;
-  })();
-
-  exports.Uint32ArrayView = Uint32ArrayView;
-}
-
-var IDENTITY_MATRIX = [1, 0, 0, 1, 0, 0];
-
-var Util = (function UtilClosure() {
-  function Util() {}
-
-  var rgbBuf = ['rgb(', 0, ',', 0, ',', 0, ')'];
-
-  // makeCssRgb() can be called thousands of times. Using |rgbBuf| avoids
+class Util {
+  // makeCssRgb() can be called thousands of times. Using ´rgbBuf` avoids
   // creating many intermediate strings.
-  Util.makeCssRgb = function Util_makeCssRgb(r, g, b) {
+  static makeCssRgb(r, g, b) {
     rgbBuf[1] = r;
     rgbBuf[3] = g;
     rgbBuf[5] = b;
-    return rgbBuf.join('');
-  };
+    return rgbBuf.join("");
+  }
 
   // Concatenates two transformation matrices together and returns the result.
-  Util.transform = function Util_transform(m1, m2) {
+  static transform(m1, m2) {
     return [
       m1[0] * m2[0] + m1[2] * m2[1],
       m1[1] * m2[0] + m1[3] * m2[1],
       m1[0] * m2[2] + m1[2] * m2[3],
       m1[1] * m2[2] + m1[3] * m2[3],
       m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
-      m1[1] * m2[4] + m1[3] * m2[5] + m1[5]
+      m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
     ];
-  };
+  }
 
   // For 2d affine transforms
-  Util.applyTransform = function Util_applyTransform(p, m) {
-    var xt = p[0] * m[0] + p[1] * m[2] + m[4];
-    var yt = p[0] * m[1] + p[1] * m[3] + m[5];
+  static applyTransform(p, m) {
+    const xt = p[0] * m[0] + p[1] * m[2] + m[4];
+    const yt = p[0] * m[1] + p[1] * m[3] + m[5];
     return [xt, yt];
-  };
+  }
 
-  Util.applyInverseTransform = function Util_applyInverseTransform(p, m) {
-    var d = m[0] * m[3] - m[1] * m[2];
-    var xt = (p[0] * m[3] - p[1] * m[2] + m[2] * m[5] - m[4] * m[3]) / d;
-    var yt = (-p[0] * m[1] + p[1] * m[0] + m[4] * m[1] - m[5] * m[0]) / d;
+  static applyInverseTransform(p, m) {
+    const d = m[0] * m[3] - m[1] * m[2];
+    const xt = (p[0] * m[3] - p[1] * m[2] + m[2] * m[5] - m[4] * m[3]) / d;
+    const yt = (-p[0] * m[1] + p[1] * m[0] + m[4] * m[1] - m[5] * m[0]) / d;
     return [xt, yt];
-  };
+  }
 
   // Applies the transform to the rectangle and finds the minimum axially
   // aligned bounding box.
-  Util.getAxialAlignedBoundingBox =
-    function Util_getAxialAlignedBoundingBox(r, m) {
-
-    var p1 = Util.applyTransform(r, m);
-    var p2 = Util.applyTransform(r.slice(2, 4), m);
-    var p3 = Util.applyTransform([r[0], r[3]], m);
-    var p4 = Util.applyTransform([r[2], r[1]], m);
+  static getAxialAlignedBoundingBox(r, m) {
+    const p1 = Util.applyTransform(r, m);
+    const p2 = Util.applyTransform(r.slice(2, 4), m);
+    const p3 = Util.applyTransform([r[0], r[3]], m);
+    const p4 = Util.applyTransform([r[2], r[1]], m);
     return [
       Math.min(p1[0], p2[0], p3[0], p4[0]),
       Math.min(p1[1], p2[1], p3[1], p4[1]),
       Math.max(p1[0], p2[0], p3[0], p4[0]),
-      Math.max(p1[1], p2[1], p3[1], p4[1])
+      Math.max(p1[1], p2[1], p3[1], p4[1]),
     ];
-  };
+  }
 
-  Util.inverseTransform = function Util_inverseTransform(m) {
-    var d = m[0] * m[3] - m[1] * m[2];
-    return [m[3] / d, -m[1] / d, -m[2] / d, m[0] / d,
-      (m[2] * m[5] - m[4] * m[3]) / d, (m[4] * m[1] - m[5] * m[0]) / d];
-  };
+  static inverseTransform(m) {
+    const d = m[0] * m[3] - m[1] * m[2];
+    return [
+      m[3] / d,
+      -m[1] / d,
+      -m[2] / d,
+      m[0] / d,
+      (m[2] * m[5] - m[4] * m[3]) / d,
+      (m[4] * m[1] - m[5] * m[0]) / d,
+    ];
+  }
 
   // Apply a generic 3d matrix M on a 3-vector v:
   //   | a b c |   | X |
@@ -749,44 +655,42 @@ var Util = (function UtilClosure() {
   //   | g h i |   | Z |
   // M is assumed to be serialized as [a,b,c,d,e,f,g,h,i],
   // with v as [X,Y,Z]
-  Util.apply3dTransform = function Util_apply3dTransform(m, v) {
+  static apply3dTransform(m, v) {
     return [
       m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
       m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
-      m[6] * v[0] + m[7] * v[1] + m[8] * v[2]
+      m[6] * v[0] + m[7] * v[1] + m[8] * v[2],
     ];
-  };
+  }
 
   // This calculation uses Singular Value Decomposition.
   // The SVD can be represented with formula A = USV. We are interested in the
   // matrix S here because it represents the scale values.
-  Util.singularValueDecompose2dScale =
-    function Util_singularValueDecompose2dScale(m) {
-
-    var transpose = [m[0], m[2], m[1], m[3]];
+  static singularValueDecompose2dScale(m) {
+    const transpose = [m[0], m[2], m[1], m[3]];
 
     // Multiply matrix m with its transpose.
-    var a = m[0] * transpose[0] + m[1] * transpose[2];
-    var b = m[0] * transpose[1] + m[1] * transpose[3];
-    var c = m[2] * transpose[0] + m[3] * transpose[2];
-    var d = m[2] * transpose[1] + m[3] * transpose[3];
+    const a = m[0] * transpose[0] + m[1] * transpose[2];
+    const b = m[0] * transpose[1] + m[1] * transpose[3];
+    const c = m[2] * transpose[0] + m[3] * transpose[2];
+    const d = m[2] * transpose[1] + m[3] * transpose[3];
 
     // Solve the second degree polynomial to get roots.
-    var first = (a + d) / 2;
-    var second = Math.sqrt((a + d) * (a + d) - 4 * (a * d - c * b)) / 2;
-    var sx = first + second || 1;
-    var sy = first - second || 1;
+    const first = (a + d) / 2;
+    const second = Math.sqrt((a + d) * (a + d) - 4 * (a * d - c * b)) / 2;
+    const sx = first + second || 1;
+    const sy = first - second || 1;
 
     // Scale values are the square roots of the eigenvalues.
     return [Math.sqrt(sx), Math.sqrt(sy)];
-  };
+  }
 
   // Normalize rectangle rect=[x1, y1, x2, y2] so that (x1,y1) < (x2,y2)
   // For coordinate systems whose origin lies in the bottom-left, this
   // means normalization to (BL,TR) ordering. For systems with origin in the
   // top-left, this means (TL,BR) ordering.
-  Util.normalizeRect = function Util_normalizeRect(rect) {
-    var r = rect.slice(0); // clone rect
+  static normalizeRect(rect) {
+    const r = rect.slice(0); // clone rect
     if (rect[0] > rect[2]) {
       r[0] = rect[2];
       r[2] = rect[0];
@@ -796,275 +700,54 @@ var Util = (function UtilClosure() {
       r[3] = rect[1];
     }
     return r;
-  };
+  }
 
   // Returns a rectangle [x1, y1, x2, y2] corresponding to the
   // intersection of rect1 and rect2. If no intersection, returns 'false'
   // The rectangle coordinates of rect1, rect2 should be [x1, y1, x2, y2]
-  Util.intersect = function Util_intersect(rect1, rect2) {
+  static intersect(rect1, rect2) {
     function compare(a, b) {
       return a - b;
     }
 
     // Order points along the axes
-    var orderedX = [rect1[0], rect1[2], rect2[0], rect2[2]].sort(compare),
-        orderedY = [rect1[1], rect1[3], rect2[1], rect2[3]].sort(compare),
-        result = [];
+    const orderedX = [rect1[0], rect1[2], rect2[0], rect2[2]].sort(compare);
+    const orderedY = [rect1[1], rect1[3], rect2[1], rect2[3]].sort(compare);
+    const result = [];
 
     rect1 = Util.normalizeRect(rect1);
     rect2 = Util.normalizeRect(rect2);
 
     // X: first and second points belong to different rectangles?
-    if ((orderedX[0] === rect1[0] && orderedX[1] === rect2[0]) ||
-        (orderedX[0] === rect2[0] && orderedX[1] === rect1[0])) {
+    if (
+      (orderedX[0] === rect1[0] && orderedX[1] === rect2[0]) ||
+      (orderedX[0] === rect2[0] && orderedX[1] === rect1[0])
+    ) {
       // Intersection must be between second and third points
       result[0] = orderedX[1];
       result[2] = orderedX[2];
     } else {
-      return false;
+      return null;
     }
 
     // Y: first and second points belong to different rectangles?
-    if ((orderedY[0] === rect1[1] && orderedY[1] === rect2[1]) ||
-        (orderedY[0] === rect2[1] && orderedY[1] === rect1[1])) {
+    if (
+      (orderedY[0] === rect1[1] && orderedY[1] === rect2[1]) ||
+      (orderedY[0] === rect2[1] && orderedY[1] === rect1[1])
+    ) {
       // Intersection must be between second and third points
       result[1] = orderedY[1];
       result[3] = orderedY[2];
     } else {
-      return false;
+      return null;
     }
 
     return result;
-  };
-
-  Util.sign = function Util_sign(num) {
-    return num < 0 ? -1 : 1;
-  };
-
-  var ROMAN_NUMBER_MAP = [
-    '', 'C', 'CC', 'CCC', 'CD', 'D', 'DC', 'DCC', 'DCCC', 'CM',
-    '', 'X', 'XX', 'XXX', 'XL', 'L', 'LX', 'LXX', 'LXXX', 'XC',
-    '', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'
-  ];
-  /**
-   * Converts positive integers to (upper case) Roman numerals.
-   * @param {integer} number - The number that should be converted.
-   * @param {boolean} lowerCase - Indicates if the result should be converted
-   *   to lower case letters. The default is false.
-   * @return {string} The resulting Roman number.
-   */
-  Util.toRoman = function Util_toRoman(number, lowerCase) {
-    assert(isInt(number) && number > 0,
-           'The number should be a positive integer.');
-    var pos, romanBuf = [];
-    // Thousands
-    while (number >= 1000) {
-      number -= 1000;
-      romanBuf.push('M');
-    }
-    // Hundreds
-    pos = (number / 100) | 0;
-    number %= 100;
-    romanBuf.push(ROMAN_NUMBER_MAP[pos]);
-    // Tens
-    pos = (number / 10) | 0;
-    number %= 10;
-    romanBuf.push(ROMAN_NUMBER_MAP[10 + pos]);
-    // Ones
-    romanBuf.push(ROMAN_NUMBER_MAP[20 + number]);
-
-    var romanStr = romanBuf.join('');
-    return (lowerCase ? romanStr.toLowerCase() : romanStr);
-  };
-
-  Util.appendToArray = function Util_appendToArray(arr1, arr2) {
-    Array.prototype.push.apply(arr1, arr2);
-  };
-
-  Util.prependToArray = function Util_prependToArray(arr1, arr2) {
-    Array.prototype.unshift.apply(arr1, arr2);
-  };
-
-  Util.extendObj = function extendObj(obj1, obj2) {
-    for (var key in obj2) {
-      obj1[key] = obj2[key];
-    }
-  };
-
-  Util.getInheritableProperty =
-      function Util_getInheritableProperty(dict, name, getArray) {
-    while (dict && !dict.has(name)) {
-      dict = dict.get('Parent');
-    }
-    if (!dict) {
-      return null;
-    }
-    return getArray ? dict.getArray(name) : dict.get(name);
-  };
-
-  Util.inherit = function Util_inherit(sub, base, prototype) {
-    sub.prototype = Object.create(base.prototype);
-    sub.prototype.constructor = sub;
-    for (var prop in prototype) {
-      sub.prototype[prop] = prototype[prop];
-    }
-  };
-
-  Util.loadScript = function Util_loadScript(src, callback) {
-    var script = document.createElement('script');
-    var loaded = false;
-    script.setAttribute('src', src);
-    if (callback) {
-      script.onload = function() {
-        if (!loaded) {
-          callback();
-        }
-        loaded = true;
-      };
-    }
-    document.getElementsByTagName('head')[0].appendChild(script);
-  };
-
-  return Util;
-})();
-
-/**
- * PDF page viewport created based on scale, rotation and offset.
- * @class
- * @alias PageViewport
- */
-var PageViewport = (function PageViewportClosure() {
-  /**
-   * @constructor
-   * @private
-   * @param viewBox {Array} xMin, yMin, xMax and yMax coordinates.
-   * @param scale {number} scale of the viewport.
-   * @param rotation {number} rotations of the viewport in degrees.
-   * @param offsetX {number} offset X
-   * @param offsetY {number} offset Y
-   * @param dontFlip {boolean} if true, axis Y will not be flipped.
-   */
-  function PageViewport(viewBox, scale, rotation, offsetX, offsetY, dontFlip) {
-    this.viewBox = viewBox;
-    this.scale = scale;
-    this.rotation = rotation;
-    this.offsetX = offsetX;
-    this.offsetY = offsetY;
-
-    // creating transform to convert pdf coordinate system to the normal
-    // canvas like coordinates taking in account scale and rotation
-    var centerX = (viewBox[2] + viewBox[0]) / 2;
-    var centerY = (viewBox[3] + viewBox[1]) / 2;
-    var rotateA, rotateB, rotateC, rotateD;
-    rotation = rotation % 360;
-    rotation = rotation < 0 ? rotation + 360 : rotation;
-    switch (rotation) {
-      case 180:
-        rotateA = -1; rotateB = 0; rotateC = 0; rotateD = 1;
-        break;
-      case 90:
-        rotateA = 0; rotateB = 1; rotateC = 1; rotateD = 0;
-        break;
-      case 270:
-        rotateA = 0; rotateB = -1; rotateC = -1; rotateD = 0;
-        break;
-      // case 0:
-      default:
-        rotateA = 1; rotateB = 0; rotateC = 0; rotateD = -1;
-        break;
-    }
-
-    if (dontFlip) {
-      rotateC = -rotateC; rotateD = -rotateD;
-    }
-
-    var offsetCanvasX, offsetCanvasY;
-    var width, height;
-    if (rotateA === 0) {
-      offsetCanvasX = Math.abs(centerY - viewBox[1]) * scale + offsetX;
-      offsetCanvasY = Math.abs(centerX - viewBox[0]) * scale + offsetY;
-      width = Math.abs(viewBox[3] - viewBox[1]) * scale;
-      height = Math.abs(viewBox[2] - viewBox[0]) * scale;
-    } else {
-      offsetCanvasX = Math.abs(centerX - viewBox[0]) * scale + offsetX;
-      offsetCanvasY = Math.abs(centerY - viewBox[1]) * scale + offsetY;
-      width = Math.abs(viewBox[2] - viewBox[0]) * scale;
-      height = Math.abs(viewBox[3] - viewBox[1]) * scale;
-    }
-    // creating transform for the following operations:
-    // translate(-centerX, -centerY), rotate and flip vertically,
-    // scale, and translate(offsetCanvasX, offsetCanvasY)
-    this.transform = [
-      rotateA * scale,
-      rotateB * scale,
-      rotateC * scale,
-      rotateD * scale,
-      offsetCanvasX - rotateA * scale * centerX - rotateC * scale * centerY,
-      offsetCanvasY - rotateB * scale * centerX - rotateD * scale * centerY
-    ];
-
-    this.width = width;
-    this.height = height;
-    this.fontScale = scale;
   }
-  PageViewport.prototype = /** @lends PageViewport.prototype */ {
-    /**
-     * Clones viewport with additional properties.
-     * @param args {Object} (optional) If specified, may contain the 'scale' or
-     * 'rotation' properties to override the corresponding properties in
-     * the cloned viewport.
-     * @returns {PageViewport} Cloned viewport.
-     */
-    clone: function PageViewPort_clone(args) {
-      args = args || {};
-      var scale = 'scale' in args ? args.scale : this.scale;
-      var rotation = 'rotation' in args ? args.rotation : this.rotation;
-      return new PageViewport(this.viewBox.slice(), scale, rotation,
-                              this.offsetX, this.offsetY, args.dontFlip);
-    },
-    /**
-     * Converts PDF point to the viewport coordinates. For examples, useful for
-     * converting PDF location into canvas pixel coordinates.
-     * @param x {number} X coordinate.
-     * @param y {number} Y coordinate.
-     * @returns {Object} Object that contains 'x' and 'y' properties of the
-     * point in the viewport coordinate space.
-     * @see {@link convertToPdfPoint}
-     * @see {@link convertToViewportRectangle}
-     */
-    convertToViewportPoint: function PageViewport_convertToViewportPoint(x, y) {
-      return Util.applyTransform([x, y], this.transform);
-    },
-    /**
-     * Converts PDF rectangle to the viewport coordinates.
-     * @param rect {Array} xMin, yMin, xMax and yMax coordinates.
-     * @returns {Array} Contains corresponding coordinates of the rectangle
-     * in the viewport coordinate space.
-     * @see {@link convertToViewportPoint}
-     */
-    convertToViewportRectangle:
-      function PageViewport_convertToViewportRectangle(rect) {
-      var tl = Util.applyTransform([rect[0], rect[1]], this.transform);
-      var br = Util.applyTransform([rect[2], rect[3]], this.transform);
-      return [tl[0], tl[1], br[0], br[1]];
-    },
-    /**
-     * Converts viewport coordinates to the PDF location. For examples, useful
-     * for converting canvas pixel location into PDF one.
-     * @param x {number} X coordinate.
-     * @param y {number} Y coordinate.
-     * @returns {Object} Object that contains 'x' and 'y' properties of the
-     * point in the PDF coordinate space.
-     * @see {@link convertToViewportPoint}
-     */
-    convertToPdfPoint: function PageViewport_convertToPdfPoint(x, y) {
-      return Util.applyInverseTransform([x, y], this.transform);
-    }
-  };
-  return PageViewport;
-})();
+}
 
-var PDFStringTranslateTable = [
+// prettier-ignore
+const PDFStringTranslateTable = [
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0x2D8, 0x2C7, 0x2C6, 0x2D9, 0x2DD, 0x2DB, 0x2DA, 0x2DC, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -1077,20 +760,29 @@ var PDFStringTranslateTable = [
 ];
 
 function stringToPDFString(str) {
-  var i, n = str.length, strBuf = [];
-  if (str[0] === '\xFE' && str[1] === '\xFF') {
+  const length = str.length,
+    strBuf = [];
+  if (str[0] === "\xFE" && str[1] === "\xFF") {
     // UTF16BE BOM
-    for (i = 2; i < n; i += 2) {
-      strBuf.push(String.fromCharCode(
-        (str.charCodeAt(i) << 8) | str.charCodeAt(i + 1)));
+    for (let i = 2; i < length; i += 2) {
+      strBuf.push(
+        String.fromCharCode((str.charCodeAt(i) << 8) | str.charCodeAt(i + 1))
+      );
+    }
+  } else if (str[0] === "\xFF" && str[1] === "\xFE") {
+    // UTF16LE BOM
+    for (let i = 2; i < length; i += 2) {
+      strBuf.push(
+        String.fromCharCode((str.charCodeAt(i + 1) << 8) | str.charCodeAt(i))
+      );
     }
   } else {
-    for (i = 0; i < n; ++i) {
-      var code = PDFStringTranslateTable[str.charCodeAt(i)];
+    for (let i = 0; i < length; ++i) {
+      const code = PDFStringTranslateTable[str.charCodeAt(i)];
       strBuf.push(code ? String.fromCharCode(code) : str.charAt(i));
     }
   }
-  return strBuf.join('');
+  return strBuf.join("");
 }
 
 function stringToUTF8String(str) {
@@ -1101,379 +793,151 @@ function utf8StringToString(str) {
   return unescape(encodeURIComponent(str));
 }
 
-function isEmptyObj(obj) {
-  for (var key in obj) {
-    return false;
-  }
-  return true;
-}
-
 function isBool(v) {
-  return typeof v === 'boolean';
-}
-
-function isInt(v) {
-  return typeof v === 'number' && ((v | 0) === v);
+  return typeof v === "boolean";
 }
 
 function isNum(v) {
-  return typeof v === 'number';
+  return typeof v === "number";
 }
 
 function isString(v) {
-  return typeof v === 'string';
-}
-
-function isArray(v) {
-  return v instanceof Array;
+  return typeof v === "string";
 }
 
 function isArrayBuffer(v) {
-  return typeof v === 'object' && v !== null && v.byteLength !== undefined;
+  return typeof v === "object" && v !== null && v.byteLength !== undefined;
 }
 
-// Checks if ch is one of the following characters: SPACE, TAB, CR or LF.
-function isSpace(ch) {
-  return (ch === 0x20 || ch === 0x09 || ch === 0x0D || ch === 0x0A);
-}
-
-function isNodeJS() {
-  // The if below protected by __pdfjsdev_webpack__ check from webpack parsing.
-  if (typeof __pdfjsdev_webpack__ === 'undefined') {
-    return typeof process === 'object' && process + '' === '[object process]';
+function isArrayEqual(arr1, arr2) {
+  if (arr1.length !== arr2.length) {
+    return false;
   }
-  return false;
+  return arr1.every(function (element, index) {
+    return element === arr2[index];
+  });
 }
 
 /**
  * Promise Capability object.
  *
  * @typedef {Object} PromiseCapability
- * @property {Promise} promise - A promise object.
- * @property {function} resolve - Fulfills the promise.
- * @property {function} reject - Rejects the promise.
+ * @property {Promise} promise - A Promise object.
+ * @property {boolean} settled - If the Promise has been fulfilled/rejected.
+ * @property {function} resolve - Fulfills the Promise.
+ * @property {function} reject - Rejects the Promise.
  */
 
 /**
  * Creates a promise capability object.
  * @alias createPromiseCapability
  *
- * @return {PromiseCapability} A capability object contains:
- * - a Promise, resolve and reject methods.
+ * @returns {PromiseCapability}
  */
 function createPromiseCapability() {
-  var capability = {};
+  const capability = Object.create(null);
+  let isSettled = false;
+
+  Object.defineProperty(capability, "settled", {
+    get() {
+      return isSettled;
+    },
+  });
   capability.promise = new Promise(function (resolve, reject) {
-    capability.resolve = resolve;
-    capability.reject = reject;
+    capability.resolve = function (data) {
+      isSettled = true;
+      resolve(data);
+    };
+    capability.reject = function (reason) {
+      isSettled = true;
+      reject(reason);
+    };
   });
   return capability;
 }
 
-var StatTimer = (function StatTimerClosure() {
-  function rpad(str, pad, length) {
-    while (str.length < length) {
-      str += pad;
-    }
-    return str;
-  }
-  function StatTimer() {
-    this.started = Object.create(null);
-    this.times = [];
-    this.enabled = true;
-  }
-  StatTimer.prototype = {
-    time: function StatTimer_time(name) {
-      if (!this.enabled) {
-        return;
-      }
-      if (name in this.started) {
-        warn('Timer is already running for ' + name);
-      }
-      this.started[name] = Date.now();
-    },
-    timeEnd: function StatTimer_timeEnd(name) {
-      if (!this.enabled) {
-        return;
-      }
-      if (!(name in this.started)) {
-        warn('Timer has not been started for ' + name);
-      }
-      this.times.push({
-        'name': name,
-        'start': this.started[name],
-        'end': Date.now()
-      });
-      // Remove timer from started so it can be called again.
-      delete this.started[name];
-    },
-    toString: function StatTimer_toString() {
-      var i, ii;
-      var times = this.times;
-      var out = '';
-      // Find the longest name for padding purposes.
-      var longest = 0;
-      for (i = 0, ii = times.length; i < ii; ++i) {
-        var name = times[i]['name'];
-        if (name.length > longest) {
-          longest = name.length;
-        }
-      }
-      for (i = 0, ii = times.length; i < ii; ++i) {
-        var span = times[i];
-        var duration = span.end - span.start;
-        out += rpad(span['name'], ' ', longest) + ' ' + duration + 'ms\n';
-      }
-      return out;
-    }
-  };
-  return StatTimer;
-})();
-
-var createBlob = function createBlob(data, contentType) {
-  if (typeof Blob !== 'undefined') {
-    return new Blob([data], { type: contentType });
-  }
-  warn('The "Blob" constructor is not supported.');
-};
-
-var createObjectURL = (function createObjectURLClosure() {
+const createObjectURL = (function createObjectURLClosure() {
   // Blob/createObjectURL is not available, falling back to data schema.
-  var digits =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  const digits =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 
-  return function createObjectURL(data, contentType, forceDataSchema) {
-    if (!forceDataSchema &&
-        typeof URL !== 'undefined' && URL.createObjectURL) {
-      var blob = createBlob(data, contentType);
+  // eslint-disable-next-line no-shadow
+  return function createObjectURL(data, contentType, forceDataSchema = false) {
+    if (!forceDataSchema && URL.createObjectURL) {
+      const blob = new Blob([data], { type: contentType });
       return URL.createObjectURL(blob);
     }
 
-    var buffer = 'data:' + contentType + ';base64,';
-    for (var i = 0, ii = data.length; i < ii; i += 3) {
-      var b1 = data[i] & 0xFF;
-      var b2 = data[i + 1] & 0xFF;
-      var b3 = data[i + 2] & 0xFF;
-      var d1 = b1 >> 2, d2 = ((b1 & 3) << 4) | (b2 >> 4);
-      var d3 = i + 1 < ii ? ((b2 & 0xF) << 2) | (b3 >> 6) : 64;
-      var d4 = i + 2 < ii ? (b3 & 0x3F) : 64;
+    let buffer = `data:${contentType};base64,`;
+    for (let i = 0, ii = data.length; i < ii; i += 3) {
+      const b1 = data[i] & 0xff;
+      const b2 = data[i + 1] & 0xff;
+      const b3 = data[i + 2] & 0xff;
+      const d1 = b1 >> 2,
+        d2 = ((b1 & 3) << 4) | (b2 >> 4);
+      const d3 = i + 1 < ii ? ((b2 & 0xf) << 2) | (b3 >> 6) : 64;
+      const d4 = i + 2 < ii ? b3 & 0x3f : 64;
       buffer += digits[d1] + digits[d2] + digits[d3] + digits[d4];
     }
     return buffer;
   };
 })();
 
-function MessageHandler(sourceName, targetName, comObj) {
-  this.sourceName = sourceName;
-  this.targetName = targetName;
-  this.comObj = comObj;
-  this.callbackIndex = 1;
-  this.postMessageTransfers = true;
-  var callbacksCapabilities = this.callbacksCapabilities = Object.create(null);
-  var ah = this.actionHandler = Object.create(null);
-
-  this._onComObjOnMessage = function messageHandlerComObjOnMessage(event) {
-    var data = event.data;
-    if (data.targetName !== this.sourceName) {
-      return;
-    }
-    if (data.isReply) {
-      var callbackId = data.callbackId;
-      if (data.callbackId in callbacksCapabilities) {
-        var callback = callbacksCapabilities[callbackId];
-        delete callbacksCapabilities[callbackId];
-        if ('error' in data) {
-          callback.reject(data.error);
-        } else {
-          callback.resolve(data.data);
-        }
-      } else {
-        error('Cannot resolve callback ' + callbackId);
-      }
-    } else if (data.action in ah) {
-      var action = ah[data.action];
-      if (data.callbackId) {
-        var sourceName = this.sourceName;
-        var targetName = data.sourceName;
-        Promise.resolve().then(function () {
-          return action[0].call(action[1], data.data);
-        }).then(function (result) {
-          comObj.postMessage({
-            sourceName: sourceName,
-            targetName: targetName,
-            isReply: true,
-            callbackId: data.callbackId,
-            data: result
-          });
-        }, function (reason) {
-          if (reason instanceof Error) {
-            // Serialize error to avoid "DataCloneError"
-            reason = reason + '';
-          }
-          comObj.postMessage({
-            sourceName: sourceName,
-            targetName: targetName,
-            isReply: true,
-            callbackId: data.callbackId,
-            error: reason
-          });
-        });
-      } else {
-        action[0].call(action[1], data.data);
-      }
-    } else {
-      error('Unknown action from worker: ' + data.action);
-    }
-  }.bind(this);
-  comObj.addEventListener('message', this._onComObjOnMessage);
-}
-
-MessageHandler.prototype = {
-  on: function messageHandlerOn(actionName, handler, scope) {
-    var ah = this.actionHandler;
-    if (ah[actionName]) {
-      error('There is already an actionName called "' + actionName + '"');
-    }
-    ah[actionName] = [handler, scope];
-  },
-  /**
-   * Sends a message to the comObj to invoke the action with the supplied data.
-   * @param {String} actionName Action to call.
-   * @param {JSON} data JSON data to send.
-   * @param {Array} [transfers] Optional list of transfers/ArrayBuffers
-   */
-  send: function messageHandlerSend(actionName, data, transfers) {
-    var message = {
-      sourceName: this.sourceName,
-      targetName: this.targetName,
-      action: actionName,
-      data: data
-    };
-    this.postMessage(message, transfers);
-  },
-  /**
-   * Sends a message to the comObj to invoke the action with the supplied data.
-   * Expects that other side will callback with the response.
-   * @param {String} actionName Action to call.
-   * @param {JSON} data JSON data to send.
-   * @param {Array} [transfers] Optional list of transfers/ArrayBuffers.
-   * @returns {Promise} Promise to be resolved with response data.
-   */
-  sendWithPromise:
-    function messageHandlerSendWithPromise(actionName, data, transfers) {
-    var callbackId = this.callbackIndex++;
-    var message = {
-      sourceName: this.sourceName,
-      targetName: this.targetName,
-      action: actionName,
-      data: data,
-      callbackId: callbackId
-    };
-    var capability = createPromiseCapability();
-    this.callbacksCapabilities[callbackId] = capability;
-    try {
-      this.postMessage(message, transfers);
-    } catch (e) {
-      capability.reject(e);
-    }
-    return capability.promise;
-  },
-  /**
-   * Sends raw message to the comObj.
-   * @private
-   * @param message {Object} Raw message.
-   * @param transfers List of transfers/ArrayBuffers, or undefined.
-   */
-  postMessage: function (message, transfers) {
-    if (transfers && this.postMessageTransfers) {
-      this.comObj.postMessage(message, transfers);
-    } else {
-      this.comObj.postMessage(message);
-    }
-  },
-
-  destroy: function () {
-    this.comObj.removeEventListener('message', this._onComObjOnMessage);
-  }
+export {
+  BaseException,
+  FONT_IDENTITY_MATRIX,
+  IDENTITY_MATRIX,
+  OPS,
+  VerbosityLevel,
+  UNSUPPORTED_FEATURES,
+  AnnotationBorderStyleType,
+  AnnotationFieldFlag,
+  AnnotationFlag,
+  AnnotationMarkedState,
+  AnnotationReplyType,
+  AnnotationReviewState,
+  AnnotationStateModelType,
+  AnnotationType,
+  FontType,
+  ImageKind,
+  CMapCompressionType,
+  AbortException,
+  InvalidPDFException,
+  MissingPDFException,
+  PasswordException,
+  PasswordResponses,
+  PermissionFlag,
+  StreamType,
+  TextRenderingMode,
+  UnexpectedResponseException,
+  UnknownErrorException,
+  Util,
+  FormatError,
+  arrayByteLength,
+  arraysToBytes,
+  assert,
+  bytesToString,
+  createPromiseCapability,
+  createObjectURL,
+  getVerbosityLevel,
+  info,
+  isArrayBuffer,
+  isArrayEqual,
+  isBool,
+  isNum,
+  isString,
+  isSameOrigin,
+  createValidAbsoluteUrl,
+  IsLittleEndianCached,
+  IsEvalSupportedCached,
+  removeNullCharacters,
+  setVerbosityLevel,
+  shadow,
+  string32,
+  stringToBytes,
+  stringToPDFString,
+  stringToUTF8String,
+  utf8StringToString,
+  warn,
+  unreachable,
 };
-
-function loadJpegStream(id, imageUrl, objs) {
-  var img = new Image();
-  img.onload = (function loadJpegStream_onloadClosure() {
-    objs.resolve(id, img);
-  });
-  img.onerror = (function loadJpegStream_onerrorClosure() {
-    objs.resolve(id, null);
-    warn('Error during JPEG image loading');
-  });
-  img.src = imageUrl;
-}
-
-exports.FONT_IDENTITY_MATRIX = FONT_IDENTITY_MATRIX;
-exports.IDENTITY_MATRIX = IDENTITY_MATRIX;
-exports.OPS = OPS;
-exports.VERBOSITY_LEVELS = VERBOSITY_LEVELS;
-exports.UNSUPPORTED_FEATURES = UNSUPPORTED_FEATURES;
-exports.AnnotationBorderStyleType = AnnotationBorderStyleType;
-exports.AnnotationFieldFlag = AnnotationFieldFlag;
-exports.AnnotationFlag = AnnotationFlag;
-exports.AnnotationType = AnnotationType;
-exports.FontType = FontType;
-exports.ImageKind = ImageKind;
-exports.CMapCompressionType = CMapCompressionType;
-exports.InvalidPDFException = InvalidPDFException;
-exports.MessageHandler = MessageHandler;
-exports.MissingDataException = MissingDataException;
-exports.MissingPDFException = MissingPDFException;
-exports.NotImplementedException = NotImplementedException;
-exports.PageViewport = PageViewport;
-exports.PasswordException = PasswordException;
-exports.PasswordResponses = PasswordResponses;
-exports.StatTimer = StatTimer;
-exports.StreamType = StreamType;
-exports.TextRenderingMode = TextRenderingMode;
-exports.UnexpectedResponseException = UnexpectedResponseException;
-exports.UnknownErrorException = UnknownErrorException;
-exports.Util = Util;
-exports.XRefParseException = XRefParseException;
-exports.arrayByteLength = arrayByteLength;
-exports.arraysToBytes = arraysToBytes;
-exports.assert = assert;
-exports.bytesToString = bytesToString;
-exports.createBlob = createBlob;
-exports.createPromiseCapability = createPromiseCapability;
-exports.createObjectURL = createObjectURL;
-exports.deprecated = deprecated;
-exports.error = error;
-exports.getLookupTableFactory = getLookupTableFactory;
-exports.getVerbosityLevel = getVerbosityLevel;
-exports.globalScope = globalScope;
-exports.info = info;
-exports.isArray = isArray;
-exports.isArrayBuffer = isArrayBuffer;
-exports.isBool = isBool;
-exports.isEmptyObj = isEmptyObj;
-exports.isInt = isInt;
-exports.isNum = isNum;
-exports.isString = isString;
-exports.isSpace = isSpace;
-exports.isNodeJS = isNodeJS;
-exports.isSameOrigin = isSameOrigin;
-exports.createValidAbsoluteUrl = createValidAbsoluteUrl;
-exports.isLittleEndian = isLittleEndian;
-exports.isEvalSupported = isEvalSupported;
-exports.loadJpegStream = loadJpegStream;
-exports.log2 = log2;
-exports.readInt8 = readInt8;
-exports.readUint16 = readUint16;
-exports.readUint32 = readUint32;
-exports.removeNullCharacters = removeNullCharacters;
-exports.setVerbosityLevel = setVerbosityLevel;
-exports.shadow = shadow;
-exports.string32 = string32;
-exports.stringToBytes = stringToBytes;
-exports.stringToPDFString = stringToPDFString;
-exports.stringToUTF8String = stringToUTF8String;
-exports.utf8StringToString = utf8StringToString;
-exports.warn = warn;
-}));

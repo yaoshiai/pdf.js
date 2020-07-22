@@ -12,56 +12,119 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-'use strict';
 
-(function (root, factory) {
-  if (typeof define === 'function' && define.amd) {
-    define('pdfjs-test/unit/test_utils', ['exports', 'pdfjs/shared/util'],
-      factory);
-  } else if (typeof exports !== 'undefined') {
-    factory(exports, require('../../src/shared/util.js'));
+import { Page, PDFDocument } from "../../src/core/document.js";
+import { assert } from "../../src/shared/util.js";
+import { isNodeJS } from "../../src/shared/is_node.js";
+import { isRef } from "../../src/core/primitives.js";
+import { StringStream } from "../../src/core/stream.js";
+
+class DOMFileReaderFactory {
+  static async fetch(params) {
+    const response = await fetch(params.path);
+    if (!response.ok) {
+      throw new Error(response.statusText);
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  }
+}
+
+class NodeFileReaderFactory {
+  static async fetch(params) {
+    const fs = require("fs");
+
+    return new Promise((resolve, reject) => {
+      fs.readFile(params.path, (error, data) => {
+        if (error || !data) {
+          reject(error || new Error(`Empty file for: ${params.path}`));
+          return;
+        }
+        resolve(new Uint8Array(data));
+      });
+    });
+  }
+}
+
+const TEST_PDFS_PATH = {
+  dom: "../pdfs/",
+  node: "./test/pdfs/",
+};
+
+function buildGetDocumentParams(filename, options) {
+  const params = Object.create(null);
+  if (isNodeJS) {
+    params.url = TEST_PDFS_PATH.node + filename;
   } else {
-    factory((root.pdfjsTestUnitTestUtils = {}), root.pdfjsSharedUtil);
+    params.url = new URL(TEST_PDFS_PATH.dom + filename, window.location).href;
   }
-}(this, function (exports, sharedUtil) {
+  for (const option in options) {
+    params[option] = options[option];
+  }
+  return params;
+}
 
-var CMapCompressionType = sharedUtil.CMapCompressionType;
+class XRefMock {
+  constructor(array) {
+    this._map = Object.create(null);
 
-var NodeCMapReaderFactory = (function NodeCMapReaderFactoryClosure() {
-  function NodeCMapReaderFactory(params) {
-    this.baseUrl = params.baseUrl || null;
-    this.isCompressed = params.isCompressed || false;
+    for (const key in array) {
+      const obj = array[key];
+      this._map[obj.ref.toString()] = obj.data;
+    }
   }
 
-  NodeCMapReaderFactory.prototype = {
-    fetch: function(params) {
-      var name = params.name;
-      if (!name) {
-        return Promise.reject(new Error('CMap name must be specified.'));
-      }
-      return new Promise(function (resolve, reject) {
-        var url = this.baseUrl + name + (this.isCompressed ? '.bcmap' : '');
+  fetch(ref) {
+    return this._map[ref.toString()];
+  }
 
-        var fs = require('fs');
-        fs.readFile(url, function (error, data) {
-          if (error || !data) {
-            reject(new Error('Unable to load ' +
-                             (this.isCompressed ? 'binary ' : '') +
-                             'CMap at: ' + url));
-            return;
-          }
-          resolve({
-            cMapData: new Uint8Array(data),
-            compressionType: this.isCompressed ?
-              CMapCompressionType.BINARY : CMapCompressionType.NONE,
-          });
-        }.bind(this));
-      }.bind(this));
+  fetchAsync(ref) {
+    return Promise.resolve(this.fetch(ref));
+  }
+
+  fetchIfRef(obj) {
+    if (!isRef(obj)) {
+      return obj;
+    }
+    return this.fetch(obj);
+  }
+
+  fetchIfRefAsync(obj) {
+    return Promise.resolve(this.fetchIfRef(obj));
+  }
+}
+
+function createIdFactory(pageIndex) {
+  const pdfManager = {
+    get docId() {
+      return "d0";
     },
   };
+  const stream = new StringStream("Dummy_PDF_data");
+  const pdfDocument = new PDFDocument(pdfManager, stream);
 
-  return NodeCMapReaderFactory;
-})();
+  const page = new Page({
+    pdfManager: pdfDocument.pdfManager,
+    xref: pdfDocument.xref,
+    pageIndex,
+    globalIdFactory: pdfDocument._globalIdFactory,
+  });
+  return page._localIdFactory;
+}
 
-exports.NodeCMapReaderFactory = NodeCMapReaderFactory;
-}));
+function isEmptyObj(obj) {
+  assert(
+    typeof obj === "object" && obj !== null,
+    "isEmptyObj - invalid argument."
+  );
+  return Object.keys(obj).length === 0;
+}
+
+export {
+  DOMFileReaderFactory,
+  NodeFileReaderFactory,
+  XRefMock,
+  buildGetDocumentParams,
+  TEST_PDFS_PATH,
+  createIdFactory,
+  isEmptyObj,
+};

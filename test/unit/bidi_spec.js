@@ -12,39 +12,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-'use strict';
 
-(function (root, factory) {
-  if (typeof define === 'function' && define.amd) {
-    define('pdfjs-test/unit/bidi_spec', ['exports', 'pdfjs/core/bidi'],
-           factory);
-  } else if (typeof exports !== 'undefined') {
-    factory(exports, require('../../src/core/bidi.js'));
-  } else {
-    factory((root.pdfjsTestUnitBidiSpec = {}), root.pdfjsCoreBidi);
-  }
-}(this, function (exports, coreBidi) {
+import { bidi } from "../../src/core/bidi.js";
 
-var bidi = coreBidi.bidi;
-
-describe('bidi', function () {
-  it('should mark text as RTL if more than 30% of text is RTL', function() {
+describe("bidi", function () {
+  it("should mark text as RTL if more than 30% of text is RTL", function () {
     // 33% of test text are RTL characters
-    var test = '\u0645\u0635\u0631 Egypt';
-    var result = 'Egypt \u0631\u0635\u0645';
+    var test = "\u0645\u0635\u0631 Egypt";
+    var result = "Egypt \u0631\u0635\u0645";
     var bidiText = bidi(test, -1, false);
 
     expect(bidiText.str).toEqual(result);
-    expect(bidiText.dir).toEqual('rtl');
+    expect(bidiText.dir).toEqual("rtl");
   });
 
-  it('should mark text as LTR if less than 30% of text is RTL', function() {
-    var test = 'Egypt is known as \u0645\u0635\u0631 in Arabic.';
-    var result = 'Egypt is known as \u0631\u0635\u0645 in Arabic.';
+  it("should mark text as LTR if less than 30% of text is RTL", function () {
+    var test = "Egypt is known as \u0645\u0635\u0631 in Arabic.";
+    var result = "Egypt is known as \u0631\u0635\u0645 in Arabic.";
     var bidiText = bidi(test, -1, false);
 
     expect(bidiText.str).toEqual(result);
-    expect(bidiText.dir).toEqual('ltr');
+    expect(bidiText.dir).toEqual("ltr");
   });
 });
-}));

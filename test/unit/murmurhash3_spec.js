@@ -12,52 +12,39 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-'use strict';
 
-(function (root, factory) {
-  if (typeof define === 'function' && define.amd) {
-    define('pdfjs-test/unit/murmurhash3_spec', ['exports',
-           'pdfjs/core/murmurhash3'], factory);
-  } else if (typeof exports !== 'undefined') {
-    factory(exports, require('../../src/core/murmurhash3.js'));
-  } else {
-    factory((root.pdfjsTestUnitMurmurHash3Spec = {}),
-             root.pdfjsCoreMurmurHash3);
-  }
-}(this, function (exports, coreMurmurHash3) {
+import { MurmurHash3_64 } from "../../src/core/murmurhash3.js";
 
-var MurmurHash3_64 = coreMurmurHash3.MurmurHash3_64;
-
-describe('MurmurHash3_64', function() {
-  it('instantiates without seed', function() {
+describe("MurmurHash3_64", function () {
+  it("instantiates without seed", function () {
     var hash = new MurmurHash3_64();
     expect(hash).toEqual(jasmine.any(MurmurHash3_64));
   });
-  it('instantiates with seed', function() {
+  it("instantiates with seed", function () {
     var hash = new MurmurHash3_64(1);
     expect(hash).toEqual(jasmine.any(MurmurHash3_64));
   });
 
-  var hexDigestExpected = 'f61cfdbfdae0f65e';
-  var sourceText = 'test';
+  var hexDigestExpected = "f61cfdbfdae0f65e";
+  var sourceText = "test";
   var sourceCharCodes = [116, 101, 115, 116]; // 't','e','s','t'
-  it('correctly generates a hash from a string', function() {
+  it("correctly generates a hash from a string", function () {
     var hash = new MurmurHash3_64();
     hash.update(sourceText);
     expect(hash.hexdigest()).toEqual(hexDigestExpected);
   });
-  it('correctly generates a hash from a Uint8Array', function() {
+  it("correctly generates a hash from a Uint8Array", function () {
     var hash = new MurmurHash3_64();
     hash.update(new Uint8Array(sourceCharCodes));
     expect(hash.hexdigest()).toEqual(hexDigestExpected);
   });
-  it('correctly generates a hash from a Uint32Array', function() {
+  it("correctly generates a hash from a Uint32Array", function () {
     var hash = new MurmurHash3_64();
-    hash.update(new Uint32Array(sourceCharCodes));
+    hash.update(new Uint32Array(new Uint8Array(sourceCharCodes).buffer));
     expect(hash.hexdigest()).toEqual(hexDigestExpected);
   });
 
-  it('changes the hash after update without seed', function() {
+  it("changes the hash after update without seed", function () {
     var hash = new MurmurHash3_64();
     var hexdigest1, hexdigest2;
     hash.update(sourceText);
@@ -66,7 +53,7 @@ describe('MurmurHash3_64', function() {
     hexdigest2 = hash.hexdigest();
     expect(hexdigest1).not.toEqual(hexdigest2);
   });
-  it('changes the hash after update with seed', function() {
+  it("changes the hash after update with seed", function () {
     var hash = new MurmurHash3_64(1);
     var hexdigest1, hexdigest2;
     hash.update(sourceText);
@@ -76,4 +63,3 @@ describe('MurmurHash3_64', function() {
     expect(hexdigest1).not.toEqual(hexdigest2);
   });
 });
-}));

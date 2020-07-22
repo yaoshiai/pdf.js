@@ -14,10 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 /* eslint strict: ["error", "function"] */
-/* globals chrome, getViewerURL */
+/* import-globals-from pdfHandler.js */
 
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   if (!chrome.fileBrowserHandler) {
     // Not on Chromium OS, bail out
@@ -28,12 +28,12 @@ limitations under the License.
   /**
    * Invoked when "Open with PDF Viewer" is chosen in the File browser.
    *
-   * @param {String} id      File browser action ID as specified in
+   * @param {string} id      File browser action ID as specified in
    *                         manifest.json
    * @param {Object} details Object of type FileHandlerExecuteEventDetails
    */
   function onExecuteFileBrowserHandler(id, details) {
-    if (id !== 'open-as-pdf') {
+    if (id !== "open-as-pdf") {
       return;
     }
     var fileEntries = details.entries;
@@ -41,12 +41,12 @@ limitations under the License.
     // the other Chrome APIs that use "tabId" (http://crbug.com/179767)
     var tabId = details.tab_id || details.tabId;
     if (tabId > 0) {
-      chrome.tabs.get(tabId, function(tab) {
+      chrome.tabs.get(tabId, function (tab) {
         openViewer(tab && tab.windowId, fileEntries);
       });
     } else {
       // Re-use existing window, if available.
-      chrome.windows.getLastFocused(function(chromeWindow) {
+      chrome.windows.getLastFocused(function (chromeWindow) {
         var windowId = chromeWindow && chromeWindow.id;
         if (windowId) {
           chrome.windows.update(windowId, { focused: true });
@@ -69,26 +69,34 @@ limitations under the License.
     var fileEntry = fileEntries.shift();
     var url = fileEntry.toURL();
     // Use drive: alias to get shorter (more human-readable) URLs.
-    url = url.replace(/^filesystem:chrome-extension:\/\/[a-p]{32}\/external\//,
-                      'drive:');
+    url = url.replace(
+      /^filesystem:chrome-extension:\/\/[a-p]{32}\/external\//,
+      "drive:"
+    );
     url = getViewerURL(url);
 
     if (windowId) {
-      chrome.tabs.create({
-        windowId: windowId,
-        active: true,
-        url: url
-      }, function() {
-        openViewer(windowId, fileEntries);
-      });
+      chrome.tabs.create(
+        {
+          windowId: windowId,
+          active: true,
+          url: url,
+        },
+        function () {
+          openViewer(windowId, fileEntries);
+        }
+      );
     } else {
-      chrome.windows.create({
-        type: 'normal',
-        focused: true,
-        url: url
-      }, function(chromeWindow) {
-        openViewer(chromeWindow.id, fileEntries);
-      });
+      chrome.windows.create(
+        {
+          type: "normal",
+          focused: true,
+          url: url,
+        },
+        function (chromeWindow) {
+          openViewer(chromeWindow.id, fileEntries);
+        }
+      );
     }
   }
 })();

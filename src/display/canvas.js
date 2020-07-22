@@ -13,43 +13,21 @@
  * limitations under the License.
  */
 
-'use strict';
-
-(function (root, factory) {
-  if (typeof define === 'function' && define.amd) {
-    define('pdfjs/display/canvas', ['exports', 'pdfjs/shared/util',
-      'pdfjs/display/dom_utils', 'pdfjs/display/pattern_helper',
-      'pdfjs/display/webgl'], factory);
-  } else if (typeof exports !== 'undefined') {
-    factory(exports, require('../shared/util.js'), require('./dom_utils.js'),
-      require('./pattern_helper.js'), require('./webgl.js'));
-  } else {
-    factory((root.pdfjsDisplayCanvas = {}), root.pdfjsSharedUtil,
-      root.pdfjsDisplayDOMUtils, root.pdfjsDisplayPatternHelper,
-      root.pdfjsDisplayWebGL);
-  }
-}(this, function (exports, sharedUtil, displayDOMUtils, displayPatternHelper,
-                  displayWebGL) {
-
-var FONT_IDENTITY_MATRIX = sharedUtil.FONT_IDENTITY_MATRIX;
-var IDENTITY_MATRIX = sharedUtil.IDENTITY_MATRIX;
-var ImageKind = sharedUtil.ImageKind;
-var OPS = sharedUtil.OPS;
-var TextRenderingMode = sharedUtil.TextRenderingMode;
-var Uint32ArrayView = sharedUtil.Uint32ArrayView;
-var Util = sharedUtil.Util;
-var assert = sharedUtil.assert;
-var info = sharedUtil.info;
-var isNum = sharedUtil.isNum;
-var isArray = sharedUtil.isArray;
-var isLittleEndian = sharedUtil.isLittleEndian;
-var error = sharedUtil.error;
-var shadow = sharedUtil.shadow;
-var warn = sharedUtil.warn;
-var TilingPattern = displayPatternHelper.TilingPattern;
-var getShadingPatternFromIR = displayPatternHelper.getShadingPatternFromIR;
-var WebGLUtils = displayWebGL.WebGLUtils;
-var hasCanvasTypedArrays = displayDOMUtils.hasCanvasTypedArrays;
+import {
+  FONT_IDENTITY_MATRIX,
+  IDENTITY_MATRIX,
+  ImageKind,
+  info,
+  IsLittleEndianCached,
+  isNum,
+  OPS,
+  shadow,
+  TextRenderingMode,
+  unreachable,
+  Util,
+  warn,
+} from "../shared/util.js";
+import { getShadingPatternFromIR, TilingPattern } from "./pattern_helper.js";
 
 // <canvas> contexts store most of the state we need natively.
 // However, PDF needs a bit more state, which we store here.
@@ -68,18 +46,6 @@ var MAX_SIZE_TO_COMPILE = 1000;
 
 var FULL_CHUNK_HEIGHT = 16;
 
-var HasCanvasTypedArraysCached = {
-  get value() {
-    return shadow(HasCanvasTypedArraysCached, 'value', hasCanvasTypedArrays());
-  }
-};
-
-var IsLittleEndianCached = {
-  get value() {
-    return shadow(IsLittleEndianCached, 'value', isLittleEndian());
-  }
-};
-
 function addContextCurrentTransform(ctx) {
   // If the context doesn't expose a `mozCurrentTransform`, add a JS based one.
   if (!ctx.mozCurrentTransform) {
@@ -94,20 +60,25 @@ function addContextCurrentTransform(ctx) {
     ctx._transformMatrix = ctx._transformMatrix || [1, 0, 0, 1, 0, 0];
     ctx._transformStack = [];
 
-    Object.defineProperty(ctx, 'mozCurrentTransform', {
+    Object.defineProperty(ctx, "mozCurrentTransform", {
       get: function getCurrentTransform() {
         return this._transformMatrix;
-      }
+      },
     });
 
-    Object.defineProperty(ctx, 'mozCurrentTransformInverse', {
+    Object.defineProperty(ctx, "mozCurrentTransformInverse", {
       get: function getCurrentTransformInverse() {
         // Calculation done using WolframAlpha:
         // http://www.wolframalpha.com/input/?
         //   i=Inverse+{{a%2C+c%2C+e}%2C+{b%2C+d%2C+f}%2C+{0%2C+0%2C+1}}
 
         var m = this._transformMatrix;
-        var a = m[0], b = m[1], c = m[2], d = m[3], e = m[4], f = m[5];
+        var a = m[0],
+          b = m[1],
+          c = m[2],
+          d = m[3],
+          e = m[4],
+          f = m[5];
 
         var ad_bc = a * d - b * c;
         var bc_ad = b * c - a * d;
@@ -118,9 +89,9 @@ function addContextCurrentTransform(ctx) {
           c / bc_ad,
           a / ad_bc,
           (d * e - c * f) / bc_ad,
-          (b * e - a * f) / ad_bc
+          (b * e - a * f) / ad_bc,
         ];
-      }
+      },
     });
 
     ctx.save = function ctxSave() {
@@ -165,7 +136,7 @@ function addContextCurrentTransform(ctx) {
         m[0] * c + m[2] * d,
         m[1] * c + m[3] * d,
         m[0] * e + m[2] * f + m[4],
-        m[1] * e + m[3] * f + m[5]
+        m[1] * e + m[3] * f + m[5],
       ];
 
       ctx._originalTransform(a, b, c, d, e, f);
@@ -185,10 +156,10 @@ function addContextCurrentTransform(ctx) {
       this._transformMatrix = [
         m[0] * cosValue + m[2] * sinValue,
         m[1] * cosValue + m[3] * sinValue,
-        m[0] * (-sinValue) + m[2] * cosValue,
-        m[1] * (-sinValue) + m[3] * cosValue,
+        m[0] * -sinValue + m[2] * cosValue,
+        m[1] * -sinValue + m[3] * cosValue,
         m[4],
-        m[5]
+        m[5],
       ];
 
       this._originalRotate(angle);
@@ -197,13 +168,18 @@ function addContextCurrentTransform(ctx) {
 }
 
 var CachedCanvases = (function CachedCanvasesClosure() {
+  // eslint-disable-next-line no-shadow
   function CachedCanvases(canvasFactory) {
     this.canvasFactory = canvasFactory;
     this.cache = Object.create(null);
   }
   CachedCanvases.prototype = {
-    getCanvas: function CachedCanvases_getCanvas(id, width, height,
-                                                 trackTransform) {
+    getCanvas: function CachedCanvases_getCanvas(
+      id,
+      width,
+      height,
+      trackTransform
+    ) {
       var canvasEntry;
       if (this.cache[id] !== undefined) {
         canvasEntry = this.cache[id];
@@ -219,13 +195,13 @@ var CachedCanvases = (function CachedCanvasesClosure() {
       }
       return canvasEntry;
     },
-    clear: function () {
+    clear() {
       for (var id in this.cache) {
         var canvasEntry = this.cache[id];
         this.canvasFactory.destroy(canvasEntry);
         delete this.cache[id];
       }
-    }
+    },
   };
   return CachedCanvases;
 })();
@@ -233,24 +209,33 @@ var CachedCanvases = (function CachedCanvasesClosure() {
 function compileType3Glyph(imgData) {
   var POINT_TO_PROCESS_LIMIT = 1000;
 
-  var width = imgData.width, height = imgData.height;
-  var i, j, j0, width1 = width + 1;
+  var width = imgData.width,
+    height = imgData.height;
+  var i,
+    j,
+    j0,
+    width1 = width + 1;
   var points = new Uint8Array(width1 * (height + 1));
+  // prettier-ignore
   var POINT_TYPES =
       new Uint8Array([0, 2, 4, 0, 1, 0, 5, 4, 8, 10, 0, 8, 0, 2, 1, 0]);
 
   // decodes bit-packed mask data
-  var lineSize = (width + 7) & ~7, data0 = imgData.data;
-  var data = new Uint8Array(lineSize * height), pos = 0, ii;
+  var lineSize = (width + 7) & ~7,
+    data0 = imgData.data;
+  var data = new Uint8Array(lineSize * height),
+    pos = 0,
+    ii;
   for (i = 0, ii = data0.length; i < ii; i++) {
-    var mask = 128, elem = data0[i];
+    var mask = 128,
+      elem = data0[i];
     while (mask > 0) {
-      data[pos++] = (elem & mask) ? 0 : 255;
+      data[pos++] = elem & mask ? 0 : 255;
       mask >>= 1;
     }
   }
 
-  // finding iteresting points: every point is located between mask pixels,
+  // finding interesting points: every point is located between mask pixels,
   // so there will be points of the (width + 1)x(height + 1) grid. Every point
   // will have flags assigned based on neighboring mask pixels:
   //   4 | 8
@@ -288,8 +273,10 @@ function compileType3Glyph(imgData) {
     // array (in order 8-1-2-4, so we can use '>>2' to shift the column).
     var sum = (data[pos] ? 4 : 0) + (data[pos - lineSize] ? 8 : 0);
     for (j = 1; j < width; j++) {
-      sum = (sum >> 2) + (data[pos + 1] ? 4 : 0) +
-            (data[pos - lineSize + 1] ? 8 : 0);
+      sum =
+        (sum >> 2) +
+        (data[pos + 1] ? 4 : 0) +
+        (data[pos - lineSize + 1] ? 8 : 0);
       if (POINT_TYPES[sum]) {
         points[j0 + j] = POINT_TYPES[sum];
         ++count;
@@ -341,7 +328,9 @@ function compileType3Glyph(imgData) {
     }
     var coords = [p % width1, i];
 
-    var type = points[p], p0 = p, pp;
+    var type = points[p],
+      p0 = p,
+      pp;
     do {
       var step = steps[type];
       do {
@@ -354,32 +343,36 @@ function compileType3Glyph(imgData) {
         type = pp;
         // delete mark
         points[p] = 0;
-      } else { // type is 5 or 10, ie, a crossing
+      } else {
+        // type is 5 or 10, ie, a crossing
         // set new direction
         type = pp & ((0x33 * type) >> 4);
         // set new type for "future hit"
-        points[p] &= (type >> 2 | type << 2);
+        points[p] &= (type >> 2) | (type << 2);
       }
 
       coords.push(p % width1);
       coords.push((p / width1) | 0);
-      --count;
+
+      if (!points[p]) {
+        --count;
+      }
     } while (p0 !== p);
     outlines.push(coords);
     --i;
   }
 
-  var drawOutline = function(c) {
+  var drawOutline = function (c) {
     c.save();
     // the path shall be painted in [0..1]x[0..1] space
     c.scale(1 / width, -1 / height);
     c.translate(0, -height);
     c.beginPath();
-    for (var i = 0, ii = outlines.length; i < ii; i++) {
-      var o = outlines[i];
+    for (let k = 0, kk = outlines.length; k < kk; k++) {
+      var o = outlines[k];
       c.moveTo(o[0], o[1]);
-      for (var j = 2, jj = o.length; j < jj; j += 2) {
-        c.lineTo(o[j], o[j + 1]);
+      for (let l = 2, ll = o.length; l < ll; l += 2) {
+        c.lineTo(o[l], o[l + 1]);
       }
     }
     c.fill();
@@ -391,7 +384,8 @@ function compileType3Glyph(imgData) {
 }
 
 var CanvasExtraState = (function CanvasExtraStateClosure() {
-  function CanvasExtraState(old) {
+  // eslint-disable-next-line no-shadow
+  function CanvasExtraState() {
     // Are soft masks and alpha values shapes or opacities?
     this.alphaIsShape = false;
     this.fontSize = 0;
@@ -413,8 +407,8 @@ var CanvasExtraState = (function CanvasExtraStateClosure() {
     this.textRenderingMode = TextRenderingMode.FILL;
     this.textRise = 0;
     // Default fore and background colors
-    this.fillColor = '#000000';
-    this.strokeColor = '#000000';
+    this.fillColor = "#000000";
+    this.strokeColor = "#000000";
     this.patternFill = false;
     // Note: fill alpha applies to all non-stroking operations
     this.fillAlpha = 1;
@@ -422,8 +416,6 @@ var CanvasExtraState = (function CanvasExtraStateClosure() {
     this.lineWidth = 1;
     this.activeSMask = null;
     this.resumeSMaskCtx = null; // nonclonable field (see the save method below)
-
-    this.old = old;
   }
 
   CanvasExtraState.prototype = {
@@ -433,7 +425,7 @@ var CanvasExtraState = (function CanvasExtraStateClosure() {
     setCurrentPoint: function CanvasExtraState_setCurrentPoint(x, y) {
       this.x = x;
       this.y = y;
-    }
+    },
   };
   return CanvasExtraState;
 })();
@@ -445,8 +437,15 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
   // Defines the number of steps before checking the execution time
   var EXECUTION_STEPS = 10;
 
-  function CanvasGraphics(canvasCtx, commonObjs, objs, canvasFactory,
-                          imageLayer) {
+  // eslint-disable-next-line no-shadow
+  function CanvasGraphics(
+    canvasCtx,
+    commonObjs,
+    objs,
+    canvasFactory,
+    webGLContext,
+    imageLayer
+  ) {
     this.ctx = canvasCtx;
     this.current = new CanvasExtraState();
     this.stateStack = [];
@@ -457,6 +456,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
     this.commonObjs = commonObjs;
     this.objs = objs;
     this.canvasFactory = canvasFactory;
+    this.webGLContext = webGLContext;
     this.imageLayer = imageLayer;
     this.groupStack = [];
     this.processingType3 = null;
@@ -474,11 +474,11 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       // the transformation must already be set in canvasCtx._transformMatrix.
       addContextCurrentTransform(canvasCtx);
     }
-    this.cachedGetSinglePixelWidth = null;
+    this._cachedGetSinglePixelWidth = null;
   }
 
   function putBinaryImageData(ctx, imgData) {
-    if (typeof ImageData !== 'undefined' && imgData instanceof ImageData) {
+    if (typeof ImageData !== "undefined" && imgData instanceof ImageData) {
       ctx.putImageData(imgData, 0, 0);
       return;
     }
@@ -494,13 +494,15 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
     // will (conceptually) put pixels past the bounds of the canvas.  But
     // that's ok; any such pixels are ignored.
 
-    var height = imgData.height, width = imgData.width;
+    var height = imgData.height,
+      width = imgData.width;
     var partialChunkHeight = height % FULL_CHUNK_HEIGHT;
     var fullChunks = (height - partialChunkHeight) / FULL_CHUNK_HEIGHT;
     var totalChunks = partialChunkHeight === 0 ? fullChunks : fullChunks + 1;
 
     var chunkImgData = ctx.createImageData(width, FULL_CHUNK_HEIGHT);
-    var srcPos = 0, destPos;
+    var srcPos = 0,
+      destPos;
     var src = imgData.data;
     var dest = chunkImgData.data;
     var i, j, thisChunkHeight, elemsInThisChunk;
@@ -510,42 +512,40 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
     if (imgData.kind === ImageKind.GRAYSCALE_1BPP) {
       // Grayscale, 1 bit per pixel (i.e. black-and-white).
       var srcLength = src.byteLength;
-      var dest32 = HasCanvasTypedArraysCached.value ?
-        new Uint32Array(dest.buffer) : new Uint32ArrayView(dest);
+      var dest32 = new Uint32Array(dest.buffer, 0, dest.byteLength >> 2);
       var dest32DataLength = dest32.length;
       var fullSrcDiff = (width + 7) >> 3;
-      var white = 0xFFFFFFFF;
-      var black = (IsLittleEndianCached.value ||
-                   !HasCanvasTypedArraysCached.value) ? 0xFF000000 : 0x000000FF;
+      var white = 0xffffffff;
+      var black = IsLittleEndianCached.value ? 0xff000000 : 0x000000ff;
       for (i = 0; i < totalChunks; i++) {
         thisChunkHeight =
-          (i < fullChunks) ? FULL_CHUNK_HEIGHT : partialChunkHeight;
+          i < fullChunks ? FULL_CHUNK_HEIGHT : partialChunkHeight;
         destPos = 0;
         for (j = 0; j < thisChunkHeight; j++) {
           var srcDiff = srcLength - srcPos;
           var k = 0;
-          var kEnd = (srcDiff > fullSrcDiff) ? width : srcDiff * 8 - 7;
+          var kEnd = srcDiff > fullSrcDiff ? width : srcDiff * 8 - 7;
           var kEndUnrolled = kEnd & ~7;
           var mask = 0;
           var srcByte = 0;
           for (; k < kEndUnrolled; k += 8) {
             srcByte = src[srcPos++];
-            dest32[destPos++] = (srcByte & 128) ? white : black;
-            dest32[destPos++] = (srcByte & 64) ? white : black;
-            dest32[destPos++] = (srcByte & 32) ? white : black;
-            dest32[destPos++] = (srcByte & 16) ? white : black;
-            dest32[destPos++] = (srcByte & 8) ? white : black;
-            dest32[destPos++] = (srcByte & 4) ? white : black;
-            dest32[destPos++] = (srcByte & 2) ? white : black;
-            dest32[destPos++] = (srcByte & 1) ? white : black;
+            dest32[destPos++] = srcByte & 128 ? white : black;
+            dest32[destPos++] = srcByte & 64 ? white : black;
+            dest32[destPos++] = srcByte & 32 ? white : black;
+            dest32[destPos++] = srcByte & 16 ? white : black;
+            dest32[destPos++] = srcByte & 8 ? white : black;
+            dest32[destPos++] = srcByte & 4 ? white : black;
+            dest32[destPos++] = srcByte & 2 ? white : black;
+            dest32[destPos++] = srcByte & 1 ? white : black;
           }
           for (; k < kEnd; k++) {
-             if (mask === 0) {
-               srcByte = src[srcPos++];
-               mask = 128;
-             }
+            if (mask === 0) {
+              srcByte = src[srcPos++];
+              mask = 128;
+            }
 
-            dest32[destPos++] = (srcByte & mask) ? white : black;
+            dest32[destPos++] = srcByte & mask ? white : black;
             mask >>= 1;
           }
         }
@@ -573,7 +573,6 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         dest.set(src.subarray(srcPos, srcPos + elemsInThisChunk));
         ctx.putImageData(chunkImgData, 0, j);
       }
-
     } else if (imgData.kind === ImageKind.RGB_24BPP) {
       // RGB, 24-bits per pixel.
       thisChunkHeight = FULL_CHUNK_HEIGHT;
@@ -585,7 +584,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         }
 
         destPos = 0;
-        for (j = elemsInThisChunk; j--;) {
+        for (j = elemsInThisChunk; j--; ) {
           dest[destPos++] = src[srcPos++];
           dest[destPos++] = src[srcPos++];
           dest[destPos++] = src[srcPos++];
@@ -594,12 +593,13 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         ctx.putImageData(chunkImgData, 0, i * FULL_CHUNK_HEIGHT);
       }
     } else {
-      error('bad image kind: ' + imgData.kind);
+      throw new Error(`bad image kind: ${imgData.kind}`);
     }
   }
 
   function putBinaryImageMask(ctx, imgData) {
-    var height = imgData.height, width = imgData.width;
+    var height = imgData.height,
+      width = imgData.width;
     var partialChunkHeight = height % FULL_CHUNK_HEIGHT;
     var fullChunks = (height - partialChunkHeight) / FULL_CHUNK_HEIGHT;
     var totalChunks = partialChunkHeight === 0 ? fullChunks : fullChunks + 1;
@@ -611,7 +611,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
 
     for (var i = 0; i < totalChunks; i++) {
       var thisChunkHeight =
-        (i < fullChunks) ? FULL_CHUNK_HEIGHT : partialChunkHeight;
+        i < fullChunks ? FULL_CHUNK_HEIGHT : partialChunkHeight;
 
       // Expand the mask so it can be used by the canvas.  Any required
       // inversion has already been handled.
@@ -623,7 +623,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
             var elem = src[srcPos++];
             mask = 128;
           }
-          dest[destPos] = (elem & mask) ? 0 : 255;
+          dest[destPos] = elem & mask ? 0 : 255;
           destPos += 4;
           mask >>= 1;
         }
@@ -633,9 +633,18 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
   }
 
   function copyCtxState(sourceCtx, destCtx) {
-    var properties = ['strokeStyle', 'fillStyle', 'fillRule', 'globalAlpha',
-                      'lineWidth', 'lineCap', 'lineJoin', 'miterLimit',
-                      'globalCompositeOperation', 'font'];
+    var properties = [
+      "strokeStyle",
+      "fillStyle",
+      "fillRule",
+      "globalAlpha",
+      "lineWidth",
+      "lineCap",
+      "lineJoin",
+      "miterLimit",
+      "globalCompositeOperation",
+      "font",
+    ];
     for (var i = 0, ii = properties.length; i < ii; i++) {
       var property = properties[i];
       if (sourceCtx[property] !== undefined) {
@@ -645,6 +654,23 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
     if (sourceCtx.setLineDash !== undefined) {
       destCtx.setLineDash(sourceCtx.getLineDash());
       destCtx.lineDashOffset = sourceCtx.lineDashOffset;
+    }
+  }
+
+  function resetCtxToDefault(ctx) {
+    ctx.strokeStyle = "#000000";
+    ctx.fillStyle = "#000000";
+    ctx.fillRule = "nonzero";
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1;
+    ctx.lineCap = "butt";
+    ctx.lineJoin = "miter";
+    ctx.miterLimit = 10;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.font = "10px sans-serif";
+    if (ctx.setLineDash !== undefined) {
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
     }
   }
 
@@ -677,24 +703,32 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
   function composeSMaskLuminosity(maskData, layerData, transferMap) {
     var length = maskData.length;
     for (var i = 3; i < length; i += 4) {
-      var y = (maskData[i - 3] * 77) +  // * 0.3 / 255 * 0x10000
-              (maskData[i - 2] * 152) + // * 0.59 ....
-              (maskData[i - 1] * 28);   // * 0.11 ....
-      layerData[i] = transferMap ?
-        (layerData[i] * transferMap[y >> 8]) >> 8 :
-        (layerData[i] * y) >> 16;
+      var y =
+        maskData[i - 3] * 77 + // * 0.3 / 255 * 0x10000
+        maskData[i - 2] * 152 + // * 0.59 ....
+        maskData[i - 1] * 28; // * 0.11 ....
+      layerData[i] = transferMap
+        ? (layerData[i] * transferMap[y >> 8]) >> 8
+        : (layerData[i] * y) >> 16;
     }
   }
 
-  function genericComposeSMask(maskCtx, layerCtx, width, height,
-                               subtype, backdrop, transferMap) {
+  function genericComposeSMask(
+    maskCtx,
+    layerCtx,
+    width,
+    height,
+    subtype,
+    backdrop,
+    transferMap
+  ) {
     var hasBackdrop = !!backdrop;
     var r0 = hasBackdrop ? backdrop[0] : 0;
     var g0 = hasBackdrop ? backdrop[1] : 0;
     var b0 = hasBackdrop ? backdrop[2] : 0;
 
     var composeFn;
-    if (subtype === 'Luminosity') {
+    if (subtype === "Luminosity") {
       composeFn = composeSMaskLuminosity;
     } else {
       composeFn = composeSMaskAlpha;
@@ -717,35 +751,57 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
     }
   }
 
-  function composeSMask(ctx, smask, layerCtx) {
+  function composeSMask(ctx, smask, layerCtx, webGLContext) {
     var mask = smask.canvas;
     var maskCtx = smask.context;
 
-    ctx.setTransform(smask.scaleX, 0, 0, smask.scaleY,
-                     smask.offsetX, smask.offsetY);
+    ctx.setTransform(
+      smask.scaleX,
+      0,
+      0,
+      smask.scaleY,
+      smask.offsetX,
+      smask.offsetY
+    );
 
     var backdrop = smask.backdrop || null;
-    if (!smask.transferMap && WebGLUtils.isEnabled) {
-      var composed = WebGLUtils.composeSMask(layerCtx.canvas, mask,
-        {subtype: smask.subtype, backdrop: backdrop});
+    if (!smask.transferMap && webGLContext.isEnabled) {
+      const composed = webGLContext.composeSMask({
+        layer: layerCtx.canvas,
+        mask,
+        properties: {
+          subtype: smask.subtype,
+          backdrop,
+        },
+      });
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.drawImage(composed, smask.offsetX, smask.offsetY);
       return;
     }
-    genericComposeSMask(maskCtx, layerCtx, mask.width, mask.height,
-                        smask.subtype, backdrop, smask.transferMap);
+    genericComposeSMask(
+      maskCtx,
+      layerCtx,
+      mask.width,
+      mask.height,
+      smask.subtype,
+      backdrop,
+      smask.transferMap
+    );
     ctx.drawImage(mask, 0, 0);
   }
 
-  var LINE_CAP_STYLES = ['butt', 'round', 'square'];
-  var LINE_JOIN_STYLES = ['miter', 'round', 'bevel'];
+  var LINE_CAP_STYLES = ["butt", "round", "square"];
+  var LINE_JOIN_STYLES = ["miter", "round", "bevel"];
   var NORMAL_CLIP = {};
   var EO_CLIP = {};
 
   CanvasGraphics.prototype = {
-
-    beginDrawing: function CanvasGraphics_beginDrawing(transform, viewport,
-                                                       transparency) {
+    beginDrawing({
+      transform,
+      viewport,
+      transparency = false,
+      background = null,
+    }) {
       // For pdfs that use blend modes we have to clear the canvas else certain
       // blend modes can look wrong since we'd be blending with a white
       // backdrop. The problem with a transparent backdrop though is we then
@@ -755,24 +811,31 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       var height = this.ctx.canvas.height;
 
       this.ctx.save();
-      this.ctx.fillStyle = 'rgb(255, 255, 255)';
+      this.ctx.fillStyle = background || "rgb(255, 255, 255)";
       this.ctx.fillRect(0, 0, width, height);
       this.ctx.restore();
 
       if (transparency) {
         var transparentCanvas = this.cachedCanvases.getCanvas(
-          'transparent', width, height, true);
+          "transparent",
+          width,
+          height,
+          true
+        );
         this.compositeCtx = this.ctx;
         this.transparentCanvas = transparentCanvas.canvas;
         this.ctx = transparentCanvas.context;
         this.ctx.save();
         // The transform can be applied before rendering, transferring it to
         // the new canvas.
-        this.ctx.transform.apply(this.ctx,
-                                 this.compositeCtx.mozCurrentTransform);
+        this.ctx.transform.apply(
+          this.ctx,
+          this.compositeCtx.mozCurrentTransform
+        );
       }
 
       this.ctx.save();
+      resetCtxToDefault(this.ctx);
       if (transform) {
         this.ctx.transform.apply(this.ctx, transform);
       }
@@ -786,9 +849,11 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
     },
 
     executeOperatorList: function CanvasGraphics_executeOperatorList(
-                                    operatorList,
-                                    executionStartIdx, continueCallback,
-                                    stepper) {
+      operatorList,
+      executionStartIdx,
+      continueCallback,
+      stepper
+    ) {
       var argsArray = operatorList.argsArray;
       var fnArray = operatorList.fnArray;
       var i = executionStartIdx || 0;
@@ -799,8 +864,9 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         return i;
       }
 
-      var chunkOperations = (argsArrayLen - i > EXECUTION_STEPS &&
-                             typeof continueCallback === 'function');
+      var chunkOperations =
+        argsArrayLen - i > EXECUTION_STEPS &&
+        typeof continueCallback === "function";
       var endTime = chunkOperations ? Date.now() + EXECUTION_TIME : 0;
       var steps = 0;
 
@@ -819,15 +885,12 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         if (fnId !== OPS.dependency) {
           this[fnId].apply(this, argsArray[i]);
         } else {
-          var deps = argsArray[i];
-          for (var n = 0, nn = deps.length; n < nn; n++) {
-            var depObjId = deps[n];
-            var common = depObjId[0] === 'g' && depObjId[1] === '_';
-            var objsPool = common ? commonObjs : objs;
+          for (const depObjId of argsArray[i]) {
+            const objsPool = depObjId.startsWith("g_") ? commonObjs : objs;
 
             // If the promise isn't resolved yet, add the continueCallback
             // to the promise and bail out.
-            if (!objsPool.isResolved(depObjId)) {
+            if (!objsPool.has(depObjId)) {
               objsPool.get(depObjId, continueCallback);
               return i;
             }
@@ -874,7 +937,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       }
 
       this.cachedCanvases.clear();
-      WebGLUtils.clear();
+      this.webGLContext.clear();
 
       if (this.imageLayer) {
         this.imageLayer.endLayout();
@@ -902,14 +965,11 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         ctx.lineDashOffset = dashPhase;
       }
     },
-    setRenderingIntent: function CanvasGraphics_setRenderingIntent(intent) {
-      // Maybe if we one day fully support color spaces this will be important
-      // for now we can ignore.
-      // TODO set rendering intent?
+    setRenderingIntent(intent) {
+      // This operation is ignored since we haven't found a use case for it yet.
     },
-    setFlatness: function CanvasGraphics_setFlatness(flatness) {
-      // There's no way to control this with canvas, but we can safely ignore.
-      // TODO set flatness?
+    setFlatness(flatness) {
+      // This operation is ignored since we haven't found a use case for it yet.
     },
     setGState: function CanvasGraphics_setGState(states) {
       for (var i = 0, ii = states.length; i < ii; i++) {
@@ -918,48 +978,50 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         var value = state[1];
 
         switch (key) {
-          case 'LW':
+          case "LW":
             this.setLineWidth(value);
             break;
-          case 'LC':
+          case "LC":
             this.setLineCap(value);
             break;
-          case 'LJ':
+          case "LJ":
             this.setLineJoin(value);
             break;
-          case 'ML':
+          case "ML":
             this.setMiterLimit(value);
             break;
-          case 'D':
+          case "D":
             this.setDash(value[0], value[1]);
             break;
-          case 'RI':
+          case "RI":
             this.setRenderingIntent(value);
             break;
-          case 'FL':
+          case "FL":
             this.setFlatness(value);
             break;
-          case 'Font':
+          case "Font":
             this.setFont(value[0], value[1]);
             break;
-          case 'CA':
+          case "CA":
             this.current.strokeAlpha = state[1];
             break;
-          case 'ca':
+          case "ca":
             this.current.fillAlpha = state[1];
             this.ctx.globalAlpha = state[1];
             break;
-          case 'BM':
+          case "BM":
             this.ctx.globalCompositeOperation = value;
             break;
-          case 'SMask':
+          case "SMask":
             if (this.current.activeSMask) {
               // If SMask is currrenly used, it needs to be suspended or
               // finished. Suspend only makes sense when at least one save()
               // was performed and state needs to be reverted on restore().
-              if (this.stateStack.length > 0 &&
-                  (this.stateStack[this.stateStack.length - 1].activeSMask ===
-                   this.current.activeSMask)) {
+              if (
+                this.stateStack.length > 0 &&
+                this.stateStack[this.stateStack.length - 1].activeSMask ===
+                  this.current.activeSMask
+              ) {
                 this.suspendSMaskGroup();
               } else {
                 this.endSMaskGroup();
@@ -975,13 +1037,16 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       }
     },
     beginSMaskGroup: function CanvasGraphics_beginSMaskGroup() {
-
       var activeSMask = this.current.activeSMask;
       var drawnWidth = activeSMask.canvas.width;
       var drawnHeight = activeSMask.canvas.height;
-      var cacheId = 'smaskGroupAt' + this.groupLevel;
+      var cacheId = "smaskGroupAt" + this.groupLevel;
       var scratchCanvas = this.cachedCanvases.getCanvas(
-        cacheId, drawnWidth, drawnHeight, true);
+        cacheId,
+        drawnWidth,
+        drawnHeight,
+        true
+      );
 
       var currentCtx = this.ctx;
       var currentTransform = currentCtx.mozCurrentTransform;
@@ -997,9 +1062,9 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       copyCtxState(currentCtx, groupCtx);
       this.ctx = groupCtx;
       this.setGState([
-        ['BM', 'source-over'],
-        ['ca', 1],
-        ['CA', 1]
+        ["BM", "source-over"],
+        ["ca", 1],
+        ["CA", 1],
       ]);
       this.groupStack.push(currentCtx);
       this.groupLevel++;
@@ -1011,7 +1076,12 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       this.groupLevel--;
       this.ctx = this.groupStack.pop();
 
-      composeSMask(this.ctx, this.current.activeSMask, groupCtx);
+      composeSMask(
+        this.ctx,
+        this.current.activeSMask,
+        groupCtx,
+        this.webGLContext
+      );
       this.ctx.restore();
       this.ctx.save(); // save is needed since SMask will be resumed.
       copyCtxState(groupCtx, this.ctx);
@@ -1022,7 +1092,8 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       // this.ctx.
       var deltaTransform = Util.transform(
         this.current.activeSMask.startTransformInverse,
-        groupCtx.mozCurrentTransform);
+        groupCtx.mozCurrentTransform
+      );
       this.ctx.transform.apply(this.ctx, deltaTransform);
 
       // SMask was composed, the results at the groupCtx can be cleared.
@@ -1046,14 +1117,20 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       this.groupLevel--;
       this.ctx = this.groupStack.pop();
 
-      composeSMask(this.ctx, this.current.activeSMask, groupCtx);
+      composeSMask(
+        this.ctx,
+        this.current.activeSMask,
+        groupCtx,
+        this.webGLContext
+      );
       this.ctx.restore();
       copyCtxState(groupCtx, this.ctx);
       // Transform was changed in the SMask canvas, reflecting this change on
       // this.ctx.
       var deltaTransform = Util.transform(
         this.current.activeSMask.startTransformInverse,
-        groupCtx.mozCurrentTransform);
+        groupCtx.mozCurrentTransform
+      );
       this.ctx.transform.apply(this.ctx, deltaTransform);
     },
     save: function CanvasGraphics_save() {
@@ -1070,9 +1147,12 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       }
       // SMask has to be finished once there is no states that are using the
       // same SMask.
-      if (this.current.activeSMask !== null && (this.stateStack.length === 0 ||
+      if (
+        this.current.activeSMask !== null &&
+        (this.stateStack.length === 0 ||
           this.stateStack[this.stateStack.length - 1].activeSMask !==
-          this.current.activeSMask)) {
+            this.current.activeSMask)
+      ) {
         this.endSMaskGroup();
       }
 
@@ -1083,20 +1163,21 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         // Ensure that the clipping path is reset (fixes issue6413.pdf).
         this.pendingClip = null;
 
-        this.cachedGetSinglePixelWidth = null;
+        this._cachedGetSinglePixelWidth = null;
       }
     },
     transform: function CanvasGraphics_transform(a, b, c, d, e, f) {
       this.ctx.transform(a, b, c, d, e, f);
 
-      this.cachedGetSinglePixelWidth = null;
+      this._cachedGetSinglePixelWidth = null;
     },
 
     // Path
     constructPath: function CanvasGraphics_constructPath(ops, args) {
       var ctx = this.ctx;
       var current = this.current;
-      var x = current.x, y = current.y;
+      var x = current.x,
+        y = current.y;
       for (var i = 0, j = 0, ii = ops.length; i < ii; i++) {
         switch (ops[i] | 0) {
           case OPS.rectangle:
@@ -1104,20 +1185,20 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
             y = args[j++];
             var width = args[j++];
             var height = args[j++];
-            if (width === 0) {
+            if (width === 0 && ctx.lineWidth < this.getSinglePixelWidth()) {
               width = this.getSinglePixelWidth();
             }
-            if (height === 0) {
+            if (height === 0 && ctx.lineWidth < this.getSinglePixelWidth()) {
               height = this.getSinglePixelWidth();
             }
             var xw = x + width;
             var yh = y + height;
-            this.ctx.moveTo(x, y);
-            this.ctx.lineTo(xw, y);
-            this.ctx.lineTo(xw, yh);
-            this.ctx.lineTo(x, yh);
-            this.ctx.lineTo(x, y);
-            this.ctx.closePath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(xw, y);
+            ctx.lineTo(xw, yh);
+            ctx.lineTo(x, yh);
+            ctx.lineTo(x, y);
+            ctx.closePath();
             break;
           case OPS.moveTo:
             x = args[j++];
@@ -1132,13 +1213,25 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
           case OPS.curveTo:
             x = args[j + 4];
             y = args[j + 5];
-            ctx.bezierCurveTo(args[j], args[j + 1], args[j + 2], args[j + 3],
-                              x, y);
+            ctx.bezierCurveTo(
+              args[j],
+              args[j + 1],
+              args[j + 2],
+              args[j + 3],
+              x,
+              y
+            );
             j += 6;
             break;
           case OPS.curveTo2:
-            ctx.bezierCurveTo(x, y, args[j], args[j + 1],
-                              args[j + 2], args[j + 3]);
+            ctx.bezierCurveTo(
+              x,
+              y,
+              args[j],
+              args[j + 1],
+              args[j + 2],
+              args[j + 3]
+            );
             x = args[j + 2];
             y = args[j + 3];
             j += 4;
@@ -1160,24 +1253,39 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       this.ctx.closePath();
     },
     stroke: function CanvasGraphics_stroke(consumePath) {
-      consumePath = typeof consumePath !== 'undefined' ? consumePath : true;
+      consumePath = typeof consumePath !== "undefined" ? consumePath : true;
       var ctx = this.ctx;
       var strokeColor = this.current.strokeColor;
-      // Prevent drawing too thin lines by enforcing a minimum line width.
-      ctx.lineWidth = Math.max(this.getSinglePixelWidth() * MIN_WIDTH_FACTOR,
-                               this.current.lineWidth);
       // For stroke we want to temporarily change the global alpha to the
       // stroking alpha.
       ctx.globalAlpha = this.current.strokeAlpha;
-      if (strokeColor && strokeColor.hasOwnProperty('type') &&
-          strokeColor.type === 'Pattern') {
+      if (
+        strokeColor &&
+        strokeColor.hasOwnProperty("type") &&
+        strokeColor.type === "Pattern"
+      ) {
         // for patterns, we transform to pattern space, calculate
         // the pattern, call stroke, and restore to user space
         ctx.save();
+        // The current transform will be replaced while building the pattern,
+        // but the line width needs to be adjusted by the current transform, so
+        // we must scale it. To properly fix this we should be using a pattern
+        // transform instead (see #10955).
+        const transform = ctx.mozCurrentTransform;
+        const scale = Util.singularValueDecompose2dScale(transform)[0];
         ctx.strokeStyle = strokeColor.getPattern(ctx, this);
+        ctx.lineWidth = Math.max(
+          this.getSinglePixelWidth() * MIN_WIDTH_FACTOR,
+          this.current.lineWidth * scale
+        );
         ctx.stroke();
         ctx.restore();
       } else {
+        // Prevent drawing too thin lines by enforcing a minimum line width.
+        ctx.lineWidth = Math.max(
+          this.getSinglePixelWidth() * MIN_WIDTH_FACTOR,
+          this.current.lineWidth
+        );
         ctx.stroke();
       }
       if (consumePath) {
@@ -1191,7 +1299,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       this.stroke();
     },
     fill: function CanvasGraphics_fill(consumePath) {
-      consumePath = typeof consumePath !== 'undefined' ? consumePath : true;
+      consumePath = typeof consumePath !== "undefined" ? consumePath : true;
       var ctx = this.ctx;
       var fillColor = this.current.fillColor;
       var isPatternFill = this.current.patternFill;
@@ -1207,7 +1315,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       }
 
       if (this.pendingEOFill) {
-        ctx.fill('evenodd');
+        ctx.fill("evenodd");
         this.pendingEOFill = false;
       } else {
         ctx.fill();
@@ -1300,17 +1408,17 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       var current = this.current;
 
       if (!fontObj) {
-        error('Can\'t find font for ' + fontRefName);
+        throw new Error(`Can't find font for ${fontRefName}`);
       }
 
-      current.fontMatrix = (fontObj.fontMatrix ?
-                            fontObj.fontMatrix : FONT_IDENTITY_MATRIX);
+      current.fontMatrix = fontObj.fontMatrix
+        ? fontObj.fontMatrix
+        : FONT_IDENTITY_MATRIX;
 
       // A valid matrix needs all main diagonal elements to be non-zero
       // This also ensures we bypass FF bugzilla bug #719844.
-      if (current.fontMatrix[0] === 0 ||
-          current.fontMatrix[3] === 0) {
-        warn('Invalid font matrix for font ' + fontRefName);
+      if (current.fontMatrix[0] === 0 || current.fontMatrix[3] === 0) {
+        warn("Invalid font matrix for font " + fontRefName);
       }
 
       // The spec for Tf (setFont) says that 'size' specifies the font 'scale',
@@ -1329,21 +1437,30 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         return; // we don't need ctx.font for Type3 fonts
       }
 
-      var name = fontObj.loadedName || 'sans-serif';
-      var bold = fontObj.black ? '900' : (fontObj.bold ? 'bold' : 'normal');
-      var italic = fontObj.italic ? 'italic' : 'normal';
-      var typeface = '"' + name + '", ' + fontObj.fallbackName;
+      var name = fontObj.loadedName || "sans-serif";
+
+      let bold = "normal";
+      if (fontObj.black) {
+        bold = "900";
+      } else if (fontObj.bold) {
+        bold = "bold";
+      }
+      var italic = fontObj.italic ? "italic" : "normal";
+      var typeface = `"${name}", ${fontObj.fallbackName}`;
 
       // Some font backends cannot handle fonts below certain size.
       // Keeping the font at minimal size and using the fontSizeScale to change
       // the current transformation matrix before the fillText/strokeText.
       // See https://bugzilla.mozilla.org/show_bug.cgi?id=726227
-      var browserFontSize = size < MIN_FONT_SIZE ? MIN_FONT_SIZE :
-                            size > MAX_FONT_SIZE ? MAX_FONT_SIZE : size;
+      let browserFontSize = size;
+      if (size < MIN_FONT_SIZE) {
+        browserFontSize = MIN_FONT_SIZE;
+      } else if (size > MAX_FONT_SIZE) {
+        browserFontSize = MAX_FONT_SIZE;
+      }
       this.current.fontSizeScale = size / browserFontSize;
 
-      var rule = italic + ' ' + bold + ' ' + browserFontSize + 'px ' + typeface;
-      this.ctx.font = rule;
+      this.ctx.font = `${italic} ${bold} ${browserFontSize}px ${typeface}`;
     },
     setTextRenderingMode: function CanvasGraphics_setTextRenderingMode(mode) {
       this.current.textRenderingMode = mode;
@@ -1370,43 +1487,56 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       this.moveText(0, this.current.leading);
     },
 
-    paintChar: function CanvasGraphics_paintChar(character, x, y) {
+    paintChar(character, x, y, patternTransform) {
       var ctx = this.ctx;
       var current = this.current;
       var font = current.font;
       var textRenderingMode = current.textRenderingMode;
       var fontSize = current.fontSize / current.fontSizeScale;
-      var fillStrokeMode = textRenderingMode &
-        TextRenderingMode.FILL_STROKE_MASK;
-      var isAddToPathSet = !!(textRenderingMode &
-        TextRenderingMode.ADD_TO_PATH_FLAG);
+      var fillStrokeMode =
+        textRenderingMode & TextRenderingMode.FILL_STROKE_MASK;
+      var isAddToPathSet = !!(
+        textRenderingMode & TextRenderingMode.ADD_TO_PATH_FLAG
+      );
+      const patternFill = current.patternFill && !font.missingFile;
 
       var addToPath;
-      if (font.disableFontFace || isAddToPathSet) {
+      if (font.disableFontFace || isAddToPathSet || patternFill) {
         addToPath = font.getPathGenerator(this.commonObjs, character);
       }
 
-      if (font.disableFontFace) {
+      if (font.disableFontFace || patternFill) {
         ctx.save();
         ctx.translate(x, y);
         ctx.beginPath();
         addToPath(ctx, fontSize);
-        if (fillStrokeMode === TextRenderingMode.FILL ||
-            fillStrokeMode === TextRenderingMode.FILL_STROKE) {
+        if (patternTransform) {
+          ctx.setTransform.apply(ctx, patternTransform);
+        }
+        if (
+          fillStrokeMode === TextRenderingMode.FILL ||
+          fillStrokeMode === TextRenderingMode.FILL_STROKE
+        ) {
           ctx.fill();
         }
-        if (fillStrokeMode === TextRenderingMode.STROKE ||
-            fillStrokeMode === TextRenderingMode.FILL_STROKE) {
+        if (
+          fillStrokeMode === TextRenderingMode.STROKE ||
+          fillStrokeMode === TextRenderingMode.FILL_STROKE
+        ) {
           ctx.stroke();
         }
         ctx.restore();
       } else {
-        if (fillStrokeMode === TextRenderingMode.FILL ||
-            fillStrokeMode === TextRenderingMode.FILL_STROKE) {
+        if (
+          fillStrokeMode === TextRenderingMode.FILL ||
+          fillStrokeMode === TextRenderingMode.FILL_STROKE
+        ) {
           ctx.fillText(character, x, y);
         }
-        if (fillStrokeMode === TextRenderingMode.STROKE ||
-            fillStrokeMode === TextRenderingMode.FILL_STROKE) {
+        if (
+          fillStrokeMode === TextRenderingMode.STROKE ||
+          fillStrokeMode === TextRenderingMode.FILL_STROKE
+        ) {
           ctx.strokeText(character, x, y);
         }
       }
@@ -1415,10 +1545,10 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         var paths = this.pendingTextPaths || (this.pendingTextPaths = []);
         paths.push({
           transform: ctx.mozCurrentTransform,
-          x: x,
-          y: y,
-          fontSize: fontSize,
-          addToPath: addToPath
+          x,
+          y,
+          fontSize,
+          addToPath,
         });
       }
     },
@@ -1426,9 +1556,13 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
     get isFontSubpixelAAEnabled() {
       // Checks if anti-aliasing is enabled when scaled text is painted.
       // On Windows GDI scaled fonts looks bad.
-      var ctx = this.canvasFactory.create(10, 10).context;
+      const { context: ctx } = this.cachedCanvases.getCanvas(
+        "isFontSubpixelAAEnabled",
+        10,
+        10
+      );
       ctx.scale(1.5, 1);
-      ctx.fillText('I', 0, 10);
+      ctx.fillText("I", 0, 10);
       var data = ctx.getImageData(0, 0, 10, 10).data;
       var enabled = false;
       for (var i = 3; i < data.length; i += 4) {
@@ -1437,7 +1571,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
           break;
         }
       }
-      return shadow(this, 'isFontSubpixelAAEnabled', enabled);
+      return shadow(this, "isFontSubpixelAAEnabled", enabled);
     },
 
     showText: function CanvasGraphics_showText(glyphs) {
@@ -1449,7 +1583,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
 
       var fontSize = current.fontSize;
       if (fontSize === 0) {
-        return;
+        return undefined;
       }
 
       var ctx = this.ctx;
@@ -1466,17 +1600,22 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
 
       var simpleFillText =
         current.textRenderingMode === TextRenderingMode.FILL &&
-        !font.disableFontFace;
+        !font.disableFontFace &&
+        !current.patternFill;
 
       ctx.save();
+      let patternTransform;
+      if (current.patternFill) {
+        // TODO: Patterns are not applied correctly to text if a non-embedded
+        // font is used. E.g. issue 8111 and ShowText-ShadingPattern.pdf.
+        ctx.save();
+        const pattern = current.fillColor.getPattern(ctx, this);
+        patternTransform = ctx.mozCurrentTransform;
+        ctx.restore();
+        ctx.fillStyle = pattern;
+      }
       ctx.transform.apply(ctx, current.textMatrix);
       ctx.translate(current.x, current.y + current.textRise);
-
-      if (current.patternFill) {
-        // TODO: Some shading patterns are not applied correctly to text,
-        //       e.g. issues 3988 and 5432, and ShowText-ShadingPattern.pdf.
-        ctx.fillStyle = current.fillColor.getPattern(ctx, this);
-      }
 
       if (fontDirection > 0) {
         ctx.scale(textHScale, -1);
@@ -1487,11 +1626,13 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       var lineWidth = current.lineWidth;
       var scale = current.textMatrixScale;
       if (scale === 0 || lineWidth === 0) {
-        var fillStrokeMode = current.textRenderingMode &
-          TextRenderingMode.FILL_STROKE_MASK;
-        if (fillStrokeMode === TextRenderingMode.STROKE ||
-            fillStrokeMode === TextRenderingMode.FILL_STROKE) {
-          this.cachedGetSinglePixelWidth = null;
+        var fillStrokeMode =
+          current.textRenderingMode & TextRenderingMode.FILL_STROKE_MASK;
+        if (
+          fillStrokeMode === TextRenderingMode.STROKE ||
+          fillStrokeMode === TextRenderingMode.FILL_STROKE
+        ) {
+          this._cachedGetSinglePixelWidth = null;
           lineWidth = this.getSinglePixelWidth() * MIN_WIDTH_FACTOR;
         }
       } else {
@@ -1505,11 +1646,12 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
 
       ctx.lineWidth = lineWidth;
 
-      var x = 0, i;
+      var x = 0,
+        i;
       for (i = 0; i < glyphsLength; ++i) {
         var glyph = glyphs[i];
         if (isNum(glyph)) {
-          x += spacingDir * glyph * fontSize / 1000;
+          x += (spacingDir * glyph * fontSize) / 1000;
           continue;
         }
 
@@ -1538,8 +1680,9 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
           // Some standard fonts may not have the exact width: rescale per
           // character if measured width is greater than expected glyph width
           // and subpixel-aa is enabled, otherwise just center the glyph.
-          var measuredWidth = ctx.measureText(character).width * 1000 /
-            fontSize * fontSizeScale;
+          var measuredWidth =
+            ((ctx.measureText(character).width * 1000) / fontSize) *
+            fontSizeScale;
           if (width < measuredWidth && this.isFontSubpixelAAEnabled) {
             var characterScaleX = width / measuredWidth;
             restoreNeeded = true;
@@ -1547,8 +1690,8 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
             ctx.scale(characterScaleX, 1);
             scaledX /= characterScaleX;
           } else if (width !== measuredWidth) {
-            scaledX += (width - measuredWidth) / 2000 *
-              fontSize / fontSizeScale;
+            scaledX +=
+              (((width - measuredWidth) / 2000) * fontSize) / fontSizeScale;
           }
         }
 
@@ -1559,16 +1702,26 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
             // common case
             ctx.fillText(character, scaledX, scaledY);
           } else {
-            this.paintChar(character, scaledX, scaledY);
+            this.paintChar(character, scaledX, scaledY, patternTransform);
             if (accent) {
               scaledAccentX = scaledX + accent.offset.x / fontSizeScale;
               scaledAccentY = scaledY - accent.offset.y / fontSizeScale;
-              this.paintChar(accent.fontChar, scaledAccentX, scaledAccentY);
+              this.paintChar(
+                accent.fontChar,
+                scaledAccentX,
+                scaledAccentY,
+                patternTransform
+              );
             }
           }
         }
 
-        var charWidth = width * widthAdvanceScale + spacing * fontDirection;
+        var charWidth;
+        if (vertical) {
+          charWidth = width * widthAdvanceScale - spacing * fontDirection;
+        } else {
+          charWidth = width * widthAdvanceScale + spacing * fontDirection;
+        }
         x += charWidth;
 
         if (restoreNeeded) {
@@ -1576,7 +1729,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         }
       }
       if (vertical) {
-        current.y -= x * textHScale;
+        current.y -= x;
       } else {
         current.x += x * textHScale;
       }
@@ -1603,7 +1756,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       if (isTextInvisible || fontSize === 0) {
         return;
       }
-      this.cachedGetSinglePixelWidth = null;
+      this._cachedGetSinglePixelWidth = null;
 
       ctx.save();
       ctx.transform.apply(ctx, current.textMatrix);
@@ -1614,7 +1767,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       for (i = 0; i < glyphsLength; ++i) {
         glyph = glyphs[i];
         if (isNum(glyph)) {
-          spacingLength = spacingDir * glyph * fontSize / 1000;
+          spacingLength = (spacingDir * glyph * fontSize) / 1000;
           this.ctx.translate(spacingLength, 0);
           current.x += spacingLength * textHScale;
           continue;
@@ -1623,8 +1776,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         var spacing = (glyph.isSpace ? wordSpacing : 0) + charSpacing;
         var operatorList = font.charProcOperatorList[glyph.operatorListId];
         if (!operatorList) {
-          warn('Type3 character \"' + glyph.operatorListId +
-               '\" is not available');
+          warn(`Type3 character "${glyph.operatorListId}" is not available.`);
           continue;
         }
         this.processingType3 = glyph;
@@ -1649,12 +1801,14 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       // We can safely ignore this since the width should be the same
       // as the width in the Widths array.
     },
-    setCharWidthAndBounds: function CanvasGraphics_setCharWidthAndBounds(xWidth,
-                                                                        yWidth,
-                                                                        llx,
-                                                                        lly,
-                                                                        urx,
-                                                                        ury) {
+    setCharWidthAndBounds: function CanvasGraphics_setCharWidthAndBounds(
+      xWidth,
+      yWidth,
+      llx,
+      lly,
+      urx,
+      ury
+    ) {
       // TODO According to the spec we're also suppose to ignore any operators
       // that set color or include images while processing this type3 font.
       this.ctx.rect(llx, lly, urx - llx, ury - lly);
@@ -1665,19 +1819,28 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
     // Color
     getColorN_Pattern: function CanvasGraphics_getColorN_Pattern(IR) {
       var pattern;
-      if (IR[0] === 'TilingPattern') {
+      if (IR[0] === "TilingPattern") {
         var color = IR[1];
-        var baseTransform = this.baseTransform ||
-                            this.ctx.mozCurrentTransform.slice();
-        var self = this;
+        var baseTransform =
+          this.baseTransform || this.ctx.mozCurrentTransform.slice();
         var canvasGraphicsFactory = {
-          createCanvasGraphics: function (ctx) {
-            return new CanvasGraphics(ctx, self.commonObjs, self.objs,
-                                      self.canvasFactory);
-          }
+          createCanvasGraphics: ctx => {
+            return new CanvasGraphics(
+              ctx,
+              this.commonObjs,
+              this.objs,
+              this.canvasFactory,
+              this.webGLContext
+            );
+          },
         };
-        pattern = new TilingPattern(IR, color, this.ctx, canvasGraphicsFactory,
-                                    baseTransform);
+        pattern = new TilingPattern(
+          IR,
+          color,
+          this.ctx,
+          canvasGraphicsFactory,
+          baseTransform
+        );
       } else {
         pattern = getShadingPatternFromIR(IR);
       }
@@ -1741,24 +1904,26 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
 
     // Images
     beginInlineImage: function CanvasGraphics_beginInlineImage() {
-      error('Should not call beginInlineImage');
+      unreachable("Should not call beginInlineImage");
     },
     beginImageData: function CanvasGraphics_beginImageData() {
-      error('Should not call beginImageData');
+      unreachable("Should not call beginImageData");
     },
 
-    paintFormXObjectBegin: function CanvasGraphics_paintFormXObjectBegin(matrix,
-                                                                        bbox) {
+    paintFormXObjectBegin: function CanvasGraphics_paintFormXObjectBegin(
+      matrix,
+      bbox
+    ) {
       this.save();
       this.baseTransformStack.push(this.baseTransform);
 
-      if (isArray(matrix) && matrix.length === 6) {
+      if (Array.isArray(matrix) && matrix.length === 6) {
         this.transform.apply(this, matrix);
       }
 
       this.baseTransform = this.ctx.mozCurrentTransform;
 
-      if (isArray(bbox) && bbox.length === 4) {
+      if (bbox) {
         var width = bbox[2] - bbox[0];
         var height = bbox[3] - bbox[1];
         this.ctx.rect(bbox[0], bbox[1], width, height);
@@ -1789,31 +1954,36 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       // - remove background color:
       // colorNew = color - alphaNew *colorBackdrop /(1 - alphaNew)
       if (!group.isolated) {
-        info('TODO: Support non-isolated groups.');
+        info("TODO: Support non-isolated groups.");
       }
 
       // TODO knockout - supposedly possible with the clever use of compositing
       // modes.
       if (group.knockout) {
-        warn('Knockout groups not supported.');
+        warn("Knockout groups not supported.");
       }
 
       var currentTransform = currentCtx.mozCurrentTransform;
       if (group.matrix) {
         currentCtx.transform.apply(currentCtx, group.matrix);
       }
-      assert(group.bbox, 'Bounding box is required.');
+      if (!group.bbox) {
+        throw new Error("Bounding box is required.");
+      }
 
       // Based on the current transform figure out how big the bounding box
       // will actually be.
       var bounds = Util.getAxialAlignedBoundingBox(
-                    group.bbox,
-                    currentCtx.mozCurrentTransform);
+        group.bbox,
+        currentCtx.mozCurrentTransform
+      );
       // Clip the bounding box to the current canvas.
-      var canvasBounds = [0,
-                          0,
-                          currentCtx.canvas.width,
-                          currentCtx.canvas.height];
+      var canvasBounds = [
+        0,
+        0,
+        currentCtx.canvas.width,
+        currentCtx.canvas.height,
+      ];
       bounds = Util.intersect(bounds, canvasBounds) || [0, 0, 0, 0];
       // Use ceil in case we're between sizes so we don't create canvas that is
       // too small and make the canvas at least 1x1 pixels.
@@ -1821,7 +1991,8 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       var offsetY = Math.floor(bounds[1]);
       var drawnWidth = Math.max(Math.ceil(bounds[2]) - offsetX, 1);
       var drawnHeight = Math.max(Math.ceil(bounds[3]) - offsetY, 1);
-      var scaleX = 1, scaleY = 1;
+      var scaleX = 1,
+        scaleY = 1;
       if (drawnWidth > MAX_GROUP_SIZE) {
         scaleX = drawnWidth / MAX_GROUP_SIZE;
         drawnWidth = MAX_GROUP_SIZE;
@@ -1831,13 +2002,17 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         drawnHeight = MAX_GROUP_SIZE;
       }
 
-      var cacheId = 'groupAt' + this.groupLevel;
+      var cacheId = "groupAt" + this.groupLevel;
       if (group.smask) {
         // Using two cache entries is case if masks are used one after another.
-        cacheId += '_smask_' + ((this.smaskCounter++) % 2);
+        cacheId += "_smask_" + (this.smaskCounter++ % 2);
       }
       var scratchCanvas = this.cachedCanvases.getCanvas(
-        cacheId, drawnWidth, drawnHeight, true);
+        cacheId,
+        drawnWidth,
+        drawnHeight,
+        true
+      );
       var groupCtx = scratchCanvas.context;
 
       // Since we created a new canvas that is just the size of the bounding box
@@ -1851,10 +2026,10 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         this.smaskStack.push({
           canvas: scratchCanvas.canvas,
           context: groupCtx,
-          offsetX: offsetX,
-          offsetY: offsetY,
-          scaleX: scaleX,
-          scaleY: scaleY,
+          offsetX,
+          offsetY,
+          scaleX,
+          scaleY,
           subtype: group.smask.subtype,
           backdrop: group.smask.backdrop,
           transferMap: group.smask.transferMap || null,
@@ -1872,9 +2047,9 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       copyCtxState(currentCtx, groupCtx);
       this.ctx = groupCtx;
       this.setGState([
-        ['BM', 'source-over'],
-        ['ca', 1],
-        ['CA', 1]
+        ["BM", "source-over"],
+        ["ca", 1],
+        ["CA", 1],
       ]);
       this.groupStack.push(currentCtx);
       this.groupLevel++;
@@ -1904,8 +2079,6 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
 
     beginAnnotations: function CanvasGraphics_beginAnnotations() {
       this.save();
-      this.current = new CanvasExtraState();
-
       if (this.baseTransform) {
         this.ctx.setTransform.apply(this.ctx, this.baseTransform);
       }
@@ -1915,11 +2088,16 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       this.restore();
     },
 
-    beginAnnotation: function CanvasGraphics_beginAnnotation(rect, transform,
-                                                             matrix) {
+    beginAnnotation: function CanvasGraphics_beginAnnotation(
+      rect,
+      transform,
+      matrix
+    ) {
       this.save();
+      resetCtxToDefault(this.ctx);
+      this.current = new CanvasExtraState();
 
-      if (isArray(rect) && rect.length === 4) {
+      if (Array.isArray(rect) && rect.length === 4) {
         var width = rect[2] - rect[0];
         var height = rect[3] - rect[1];
         this.ctx.rect(rect[0], rect[1], width, height);
@@ -1935,38 +2113,10 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       this.restore();
     },
 
-    paintJpegXObject: function CanvasGraphics_paintJpegXObject(objId, w, h) {
-      var domImage = this.objs.get(objId);
-      if (!domImage) {
-        warn('Dependent image isn\'t ready yet');
-        return;
-      }
-
-      this.save();
-
-      var ctx = this.ctx;
-      // scale the image to the unit square
-      ctx.scale(1 / w, -1 / h);
-
-      ctx.drawImage(domImage, 0, 0, domImage.width, domImage.height,
-                    0, -h, w, h);
-      if (this.imageLayer) {
-        var currentTransform = ctx.mozCurrentTransformInverse;
-        var position = this.getCanvasPosition(0, 0);
-        this.imageLayer.appendImage({
-          objId: objId,
-          left: position[0],
-          top: position[1],
-          width: w / currentTransform[0],
-          height: h / currentTransform[3]
-        });
-      }
-      this.restore();
-    },
-
     paintImageMaskXObject: function CanvasGraphics_paintImageMaskXObject(img) {
       var ctx = this.ctx;
-      var width = img.width, height = img.height;
+      var width = img.width,
+        height = img.height;
       var fillColor = this.current.fillColor;
       var isPatternFill = this.current.patternFill;
 
@@ -1974,8 +2124,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
 
       if (COMPILE_TYPE3_GLYPHS && glyph && glyph.compiled === undefined) {
         if (width <= MAX_SIZE_TO_COMPILE && height <= MAX_SIZE_TO_COMPILE) {
-          glyph.compiled =
-            compileType3Glyph({data: img.data, width: width, height: height});
+          glyph.compiled = compileType3Glyph({ data: img.data, width, height });
         } else {
           glyph.compiled = null;
         }
@@ -1986,17 +2135,21 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         return;
       }
 
-      var maskCanvas = this.cachedCanvases.getCanvas('maskCanvas',
-                                                     width, height);
+      var maskCanvas = this.cachedCanvases.getCanvas(
+        "maskCanvas",
+        width,
+        height
+      );
       var maskCtx = maskCanvas.context;
       maskCtx.save();
 
       putBinaryImageMask(maskCtx, img);
 
-      maskCtx.globalCompositeOperation = 'source-in';
+      maskCtx.globalCompositeOperation = "source-in";
 
-      maskCtx.fillStyle = isPatternFill ?
-                          fillColor.getPattern(maskCtx, this) : fillColor;
+      maskCtx.fillStyle = isPatternFill
+        ? fillColor.getPattern(maskCtx, this)
+        : fillColor;
       maskCtx.fillRect(0, 0, width, height);
 
       maskCtx.restore();
@@ -2004,25 +2157,34 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       this.paintInlineImageXObject(maskCanvas.canvas);
     },
 
-    paintImageMaskXObjectRepeat:
-      function CanvasGraphics_paintImageMaskXObjectRepeat(imgData, scaleX,
-                                                          scaleY, positions) {
+    paintImageMaskXObjectRepeat(
+      imgData,
+      scaleX,
+      skewX = 0,
+      skewY = 0,
+      scaleY,
+      positions
+    ) {
       var width = imgData.width;
       var height = imgData.height;
       var fillColor = this.current.fillColor;
       var isPatternFill = this.current.patternFill;
 
-      var maskCanvas = this.cachedCanvases.getCanvas('maskCanvas',
-                                                     width, height);
+      var maskCanvas = this.cachedCanvases.getCanvas(
+        "maskCanvas",
+        width,
+        height
+      );
       var maskCtx = maskCanvas.context;
       maskCtx.save();
 
       putBinaryImageMask(maskCtx, imgData);
 
-      maskCtx.globalCompositeOperation = 'source-in';
+      maskCtx.globalCompositeOperation = "source-in";
 
-      maskCtx.fillStyle = isPatternFill ?
-                          fillColor.getPattern(maskCtx, this) : fillColor;
+      maskCtx.fillStyle = isPatternFill
+        ? fillColor.getPattern(maskCtx, this)
+        : fillColor;
       maskCtx.fillRect(0, 0, width, height);
 
       maskCtx.restore();
@@ -2030,35 +2192,47 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       var ctx = this.ctx;
       for (var i = 0, ii = positions.length; i < ii; i += 2) {
         ctx.save();
-        ctx.transform(scaleX, 0, 0, scaleY, positions[i], positions[i + 1]);
+        ctx.transform(
+          scaleX,
+          skewX,
+          skewY,
+          scaleY,
+          positions[i],
+          positions[i + 1]
+        );
         ctx.scale(1, -1);
-        ctx.drawImage(maskCanvas.canvas, 0, 0, width, height,
-          0, -1, 1, 1);
+        ctx.drawImage(maskCanvas.canvas, 0, 0, width, height, 0, -1, 1, 1);
         ctx.restore();
       }
     },
 
-    paintImageMaskXObjectGroup:
-      function CanvasGraphics_paintImageMaskXObjectGroup(images) {
+    paintImageMaskXObjectGroup: function CanvasGraphics_paintImageMaskXObjectGroup(
+      images
+    ) {
       var ctx = this.ctx;
 
       var fillColor = this.current.fillColor;
       var isPatternFill = this.current.patternFill;
       for (var i = 0, ii = images.length; i < ii; i++) {
         var image = images[i];
-        var width = image.width, height = image.height;
+        var width = image.width,
+          height = image.height;
 
-        var maskCanvas = this.cachedCanvases.getCanvas('maskCanvas',
-                                                       width, height);
+        var maskCanvas = this.cachedCanvases.getCanvas(
+          "maskCanvas",
+          width,
+          height
+        );
         var maskCtx = maskCanvas.context;
         maskCtx.save();
 
         putBinaryImageMask(maskCtx, image);
 
-        maskCtx.globalCompositeOperation = 'source-in';
+        maskCtx.globalCompositeOperation = "source-in";
 
-        maskCtx.fillStyle = isPatternFill ?
-                            fillColor.getPattern(maskCtx, this) : fillColor;
+        maskCtx.fillStyle = isPatternFill
+          ? fillColor.getPattern(maskCtx, this)
+          : fillColor;
         maskCtx.fillRect(0, 0, width, height);
 
         maskCtx.restore();
@@ -2066,28 +2240,34 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         ctx.save();
         ctx.transform.apply(ctx, image.transform);
         ctx.scale(1, -1);
-        ctx.drawImage(maskCanvas.canvas, 0, 0, width, height,
-                      0, -1, 1, 1);
+        ctx.drawImage(maskCanvas.canvas, 0, 0, width, height, 0, -1, 1, 1);
         ctx.restore();
       }
     },
 
     paintImageXObject: function CanvasGraphics_paintImageXObject(objId) {
-      var imgData = this.objs.get(objId);
+      const imgData = objId.startsWith("g_")
+        ? this.commonObjs.get(objId)
+        : this.objs.get(objId);
       if (!imgData) {
-        warn('Dependent image isn\'t ready yet');
+        warn("Dependent image isn't ready yet");
         return;
       }
 
       this.paintInlineImageXObject(imgData);
     },
 
-    paintImageXObjectRepeat:
-      function CanvasGraphics_paintImageXObjectRepeat(objId, scaleX, scaleY,
-                                                          positions) {
-      var imgData = this.objs.get(objId);
+    paintImageXObjectRepeat: function CanvasGraphics_paintImageXObjectRepeat(
+      objId,
+      scaleX,
+      scaleY,
+      positions
+    ) {
+      const imgData = objId.startsWith("g_")
+        ? this.commonObjs.get(objId)
+        : this.objs.get(objId);
       if (!imgData) {
-        warn('Dependent image isn\'t ready yet');
+        warn("Dependent image isn't ready yet");
         return;
       }
 
@@ -2095,14 +2275,20 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       var height = imgData.height;
       var map = [];
       for (var i = 0, ii = positions.length; i < ii; i += 2) {
-        map.push({transform: [scaleX, 0, 0, scaleY, positions[i],
-                 positions[i + 1]], x: 0, y: 0, w: width, h: height});
+        map.push({
+          transform: [scaleX, 0, 0, scaleY, positions[i], positions[i + 1]],
+          x: 0,
+          y: 0,
+          w: width,
+          h: height,
+        });
       }
       this.paintInlineImageXObjectGroup(imgData, map);
     },
 
-    paintInlineImageXObject:
-      function CanvasGraphics_paintInlineImageXObject(imgData) {
+    paintInlineImageXObject: function CanvasGraphics_paintInlineImageXObject(
+      imgData
+    ) {
       var width = imgData.width;
       var height = imgData.height;
       var ctx = this.ctx;
@@ -2112,31 +2298,39 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       ctx.scale(1 / width, -1 / height);
 
       var currentTransform = ctx.mozCurrentTransformInverse;
-      var a = currentTransform[0], b = currentTransform[1];
+      var a = currentTransform[0],
+        b = currentTransform[1];
       var widthScale = Math.max(Math.sqrt(a * a + b * b), 1);
-      var c = currentTransform[2], d = currentTransform[3];
+      var c = currentTransform[2],
+        d = currentTransform[3];
       var heightScale = Math.max(Math.sqrt(c * c + d * d), 1);
 
       var imgToPaint, tmpCanvas;
-      // instanceof HTMLElement does not work in jsdom node.js module
-      if (imgData instanceof HTMLElement || !imgData.data) {
+      // typeof check is needed due to node.js support, see issue #8489
+      if (
+        (typeof HTMLElement === "function" && imgData instanceof HTMLElement) ||
+        !imgData.data
+      ) {
         imgToPaint = imgData;
       } else {
-        tmpCanvas = this.cachedCanvases.getCanvas('inlineImage',
-                                                  width, height);
+        tmpCanvas = this.cachedCanvases.getCanvas("inlineImage", width, height);
         var tmpCtx = tmpCanvas.context;
         putBinaryImageData(tmpCtx, imgData);
         imgToPaint = tmpCanvas.canvas;
       }
 
-      var paintWidth = width, paintHeight = height;
-      var tmpCanvasId = 'prescale1';
-      // Vertial or horizontal scaling shall not be more than 2 to not loose the
+      var paintWidth = width,
+        paintHeight = height;
+      var tmpCanvasId = "prescale1";
+      // Vertical or horizontal scaling shall not be more than 2 to not lose the
       // pixels during drawImage operation, painting on the temporary canvas(es)
-      // that are twice smaller in size
-      while ((widthScale > 2 && paintWidth > 1) ||
-             (heightScale > 2 && paintHeight > 1)) {
-        var newWidth = paintWidth, newHeight = paintHeight;
+      // that are twice smaller in size.
+      while (
+        (widthScale > 2 && paintWidth > 1) ||
+        (heightScale > 2 && paintHeight > 1)
+      ) {
+        var newWidth = paintWidth,
+          newHeight = paintHeight;
         if (widthScale > 2 && paintWidth > 1) {
           newWidth = Math.ceil(paintWidth / 2);
           widthScale /= paintWidth / newWidth;
@@ -2145,40 +2339,63 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
           newHeight = Math.ceil(paintHeight / 2);
           heightScale /= paintHeight / newHeight;
         }
-        tmpCanvas = this.cachedCanvases.getCanvas(tmpCanvasId,
-                                                  newWidth, newHeight);
+        tmpCanvas = this.cachedCanvases.getCanvas(
+          tmpCanvasId,
+          newWidth,
+          newHeight
+        );
         tmpCtx = tmpCanvas.context;
         tmpCtx.clearRect(0, 0, newWidth, newHeight);
-        tmpCtx.drawImage(imgToPaint, 0, 0, paintWidth, paintHeight,
-                                     0, 0, newWidth, newHeight);
+        tmpCtx.drawImage(
+          imgToPaint,
+          0,
+          0,
+          paintWidth,
+          paintHeight,
+          0,
+          0,
+          newWidth,
+          newHeight
+        );
         imgToPaint = tmpCanvas.canvas;
         paintWidth = newWidth;
         paintHeight = newHeight;
-        tmpCanvasId = tmpCanvasId === 'prescale1' ? 'prescale2' : 'prescale1';
+        tmpCanvasId = tmpCanvasId === "prescale1" ? "prescale2" : "prescale1";
       }
-      ctx.drawImage(imgToPaint, 0, 0, paintWidth, paintHeight,
-                                0, -height, width, height);
+      ctx.drawImage(
+        imgToPaint,
+        0,
+        0,
+        paintWidth,
+        paintHeight,
+        0,
+        -height,
+        width,
+        height
+      );
 
       if (this.imageLayer) {
         var position = this.getCanvasPosition(0, -height);
         this.imageLayer.appendImage({
-          imgData: imgData,
+          imgData,
           left: position[0],
           top: position[1],
           width: width / currentTransform[0],
-          height: height / currentTransform[3]
+          height: height / currentTransform[3],
         });
       }
       this.restore();
     },
 
-    paintInlineImageXObjectGroup:
-      function CanvasGraphics_paintInlineImageXObjectGroup(imgData, map) {
+    paintInlineImageXObjectGroup: function CanvasGraphics_paintInlineImageXObjectGroup(
+      imgData,
+      map
+    ) {
       var ctx = this.ctx;
       var w = imgData.width;
       var h = imgData.height;
 
-      var tmpCanvas = this.cachedCanvases.getCanvas('inlineImage', w, h);
+      var tmpCanvas = this.cachedCanvases.getCanvas("inlineImage", w, h);
       var tmpCtx = tmpCanvas.context;
       putBinaryImageData(tmpCtx, imgData);
 
@@ -2187,29 +2404,33 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
         ctx.save();
         ctx.transform.apply(ctx, entry.transform);
         ctx.scale(1, -1);
-        ctx.drawImage(tmpCanvas.canvas, entry.x, entry.y, entry.w, entry.h,
-                      0, -1, 1, 1);
+        ctx.drawImage(
+          tmpCanvas.canvas,
+          entry.x,
+          entry.y,
+          entry.w,
+          entry.h,
+          0,
+          -1,
+          1,
+          1
+        );
         if (this.imageLayer) {
           var position = this.getCanvasPosition(entry.x, entry.y);
           this.imageLayer.appendImage({
-            imgData: imgData,
+            imgData,
             left: position[0],
             top: position[1],
             width: w,
-            height: h
+            height: h,
           });
         }
         ctx.restore();
       }
     },
 
-    paintSolidColorImageMask:
-      function CanvasGraphics_paintSolidColorImageMask() {
-        this.ctx.fillRect(0, 0, 1, 1);
-    },
-
-    paintXObject: function CanvasGraphics_paintXObject() {
-      warn('Unsupported \'paintXObject\' command.');
+    paintSolidColorImageMask: function CanvasGraphics_paintSolidColorImageMask() {
+      this.ctx.fillRect(0, 0, 1, 1);
     },
 
     // Marked content
@@ -2224,7 +2445,9 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       // TODO Marked content.
     },
     beginMarkedContentProps: function CanvasGraphics_beginMarkedContentProps(
-                                        tag, properties) {
+      tag,
+      properties
+    ) {
       // TODO Marked content.
     },
     endMarkedContent: function CanvasGraphics_endMarkedContent() {
@@ -2246,7 +2469,7 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       var ctx = this.ctx;
       if (this.pendingClip) {
         if (this.pendingClip === EO_CLIP) {
-          ctx.clip('evenodd');
+          ctx.clip("evenodd");
         } else {
           ctx.clip();
         }
@@ -2254,29 +2477,26 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
       }
       ctx.beginPath();
     },
-    getSinglePixelWidth: function CanvasGraphics_getSinglePixelWidth(scale) {
-      if (this.cachedGetSinglePixelWidth === null) {
-        // NOTE: The `save` and `restore` commands used below is a workaround
-        // that is necessary in order to prevent `mozCurrentTransformInverse`
-        // from intermittently returning incorrect values in Firefox, see:
-        // https://github.com/mozilla/pdf.js/issues/7188.
-        this.ctx.save();
-        var inverse = this.ctx.mozCurrentTransformInverse;
-        this.ctx.restore();
+    getSinglePixelWidth(scale) {
+      if (this._cachedGetSinglePixelWidth === null) {
+        const inverse = this.ctx.mozCurrentTransformInverse;
         // max of the current horizontal and vertical scale
-        this.cachedGetSinglePixelWidth = Math.sqrt(Math.max(
-          (inverse[0] * inverse[0] + inverse[1] * inverse[1]),
-          (inverse[2] * inverse[2] + inverse[3] * inverse[3])));
+        this._cachedGetSinglePixelWidth = Math.sqrt(
+          Math.max(
+            inverse[0] * inverse[0] + inverse[1] * inverse[1],
+            inverse[2] * inverse[2] + inverse[3] * inverse[3]
+          )
+        );
       }
-      return this.cachedGetSinglePixelWidth;
+      return this._cachedGetSinglePixelWidth;
     },
     getCanvasPosition: function CanvasGraphics_getCanvasPosition(x, y) {
       var transform = this.ctx.mozCurrentTransform;
       return [
         transform[0] * x + transform[2] * y + transform[4],
-        transform[1] * x + transform[3] * y + transform[5]
+        transform[1] * x + transform[3] * y + transform[5],
       ];
-    }
+    },
   };
 
   for (var op in OPS) {
@@ -2286,5 +2506,4 @@ var CanvasGraphics = (function CanvasGraphicsClosure() {
   return CanvasGraphics;
 })();
 
-exports.CanvasGraphics = CanvasGraphics;
-}));
+export { CanvasGraphics };
