@@ -1298,13 +1298,17 @@ function MessageHandler(sourceName, targetName, comObj) {
         Promise.resolve().then(function () {
           return action[0].call(action[1], data.data);
         }).then(function (result) {
-          comObj.postMessage({
-            sourceName: sourceName,
-            targetName: targetName,
-            isReply: true,
-            callbackId: data.callbackId,
-            data: result
-          });
+          try { // change by YS 20200806 未知错误
+            comObj.postMessage({
+              sourceName: sourceName,
+              targetName: targetName,
+              isReply: true,
+              callbackId: data.callbackId,
+              data: result
+            });
+          } catch (error) {
+            console.warn(error);
+          }
         }, function (reason) {
           if (reason instanceof Error) {
             // Serialize error to avoid "DataCloneError"

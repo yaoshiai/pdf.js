@@ -206,7 +206,8 @@ function parseQueryString(query) {
   for (var i = 0, ii = parts.length; i < ii; ++i) {
     var param = parts[i].split('=');
     var key = param[0].toLowerCase();
-    var value = param.length > 1 ? param[1] : null;
+    var value = param.length > 1 ? param.slice(1).join('=') : null; // change by Yao 20200807
+    // var value = param.length > 1 ? param[1] : null;
     params[decodeURIComponent(key)] = decodeURIComponent(value);
   }
   return params;
