@@ -256,18 +256,6 @@ html[dir='rtl'] #viewerContainer {
   height: 54px;
   background-color: #e8e8e8; /* fallback */
 }
-html[dir='ltr'] #toolbarSidebar {
-  box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.25),
-              inset 0 -1px 0 hsla(0,0%,100%,.05),
-              0 1px 0 hsla(0,0%,0%,.15),
-              0 0 1px hsla(0,0%,0%,.1);
-}
-html[dir='rtl'] #toolbarSidebar {
-  box-shadow: inset 1px 0 0 rgba(0, 0, 0, 0.25),
-              inset 0 1px 0 hsla(0,0%,100%,.05),
-              0 1px 0 hsla(0,0%,0%,.15),
-              0 0 1px hsla(0,0%,0%,.1);
-}
 
 #toolbarContainer, .findbar, .secondaryToolbar {
   box-sizing: border-box;
@@ -278,7 +266,7 @@ html[dir='rtl'] #toolbarSidebar {
 		rgba(0, 0, 0, 0.08);
 	border: solid 1px #f4f4f4;
 }
-html[dir='ltr'] #toolbarContainer, .findbar, .secondaryToolbar {
+.findbar, .secondaryToolbar {
   box-shadow: inset 1px 0 0 hsla(0,0%,100%,.08),
               inset 0 1px 1px hsla(0,0%,0%,.15),
               inset 0 -1px 0 hsla(0,0%,100%,.05),
@@ -753,6 +741,7 @@ html[dir='rtl'] .dropdownToolbarButton {
 }
 html[dir='ltr'] .dropdownToolbarButton {
   background-position: 95%;
+	border: solid 1px #e0e0e0;
 }
 html[dir='rtl'] .dropdownToolbarButton {
   background-position: 5%;
@@ -766,8 +755,8 @@ html[dir='rtl'] .dropdownToolbarButton {
   padding: 3px 2px 2px;
 	height: 28px;
 	background-color: #ffffff;
-	border-radius: 4px;
-	border: solid 1px #e0e0e0;
+  border-radius: 2px;
+  border:none;
 }
 
 .dropdownToolbarButton > select > option {
@@ -1049,12 +1038,10 @@ html[dir='rtl'] .verticalToolbarSeparator {
   padding: 3px 6px;
   margin: 4px 0 4px 0;
   background-color: #ffffff;
-	border-radius: 4px;
+	border-radius: 2px;
 	border: solid 1px #e0e0e0;
   background-image: linear-gradient(hsla(0,0%,100%,.05), hsla(0,0%,100%,0));
   background-clip: padding-box;
-  border: 1px solid hsla(0,0%,0%,.35);
-  border-color: hsla(0,0%,0%,.32) hsla(0,0%,0%,.38) hsla(0,0%,0%,.42);
   box-shadow: 0 1px 0 hsla(0,0%,0%,.05) inset,
               0 1px 0 hsla(0,0%,100%,.05);
   color: #666;
@@ -1395,7 +1382,7 @@ html[dir='rtl'] .outlineItemToggler::before {
               inset 0 -1px 0 hsla(0,0%,100%,.05),
               0 1px 0 hsla(0,0%,0%,.15),
               0 1px 1px hsla(0,0%,0%,.1);
-  border-radius: 4px;
+  border-radius: 2px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
