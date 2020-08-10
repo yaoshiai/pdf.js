@@ -708,9 +708,8 @@ html[dir='rtl'] .dropdownToolbarButton {
 .toolbarButton.toggled,
 .splitToolbarButton.toggled > .toolbarButton.toggled,
 .secondaryToolbarButton.toggled {
-  background-color: hsla(0,0%,0%,.3);
+  background-color: #ddd;
   background-image: linear-gradient(hsla(0,0%,100%,.05), hsla(0,0%,100%,0));
-  border-color: hsla(0,0%,0%,.4) hsla(0,0%,0%,.45) #f4f4f4;
   box-shadow: 0 1px 1px hsla(0,0%,0%,.1) inset,
               0 0 1px hsla(0,0%,0%,.2) inset,
               0 1px 0 hsla(0,0%,100%,.05);
@@ -725,7 +724,7 @@ html[dir='rtl'] .dropdownToolbarButton {
 .toolbarButton.toggled:hover:active,
 .splitToolbarButton.toggled > .toolbarButton.toggled:hover:active,
 .secondaryToolbarButton.toggled:hover:active {
-  background-color: hsla(0,0%,0%,.4);
+  /* background-color: hsla(0,0%,0%,.4); */
   border-color: hsla(0,0%,0%,.4) #f4f4f4 hsla(0,0%,0%,.55);
   box-shadow: 0 1px 1px hsla(0,0%,0%,.2) inset,
               0 0 1px hsla(0,0%,0%,.3) inset,
