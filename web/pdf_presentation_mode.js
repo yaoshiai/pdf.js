@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-import { normalizeWheelEventDelta } from "./ui_utils.js";
+import { normalizeWheelEventDelta, PresentationModeState } from "./ui_utils.js";
 
 const DELAY_BEFORE_RESETTING_SWITCH_IN_PROGRESS = 1500; // in ms
 const DELAY_BEFORE_HIDING_CONTROLS = 3000; // in ms
@@ -92,8 +92,6 @@ class PDFPresentationMode {
       this.container.mozRequestFullScreen();
     } else if (this.container.webkitRequestFullscreen) {
       this.container.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
-    } else if (this.container.msRequestFullscreen) {
-      this.container.msRequestFullscreen();
     } else {
       return false;
     }
@@ -151,8 +149,7 @@ class PDFPresentationMode {
     return !!(
       document.fullscreenElement ||
       document.mozFullScreen ||
-      document.webkitIsFullScreen ||
-      document.msFullscreenElement
+      document.webkitIsFullScreen
     );
   }
 
@@ -186,11 +183,34 @@ class PDFPresentationMode {
    * @private
    */
   _notifyStateChange() {
-    this.eventBus.dispatch("presentationmodechanged", {
-      source: this,
-      active: this.active,
-      switchInProgress: !!this.switchInProgress,
-    });
+    let state = PresentationModeState.NORMAL;
+    if (this.switchInProgress) {
+      state = PresentationModeState.CHANGING;
+    } else if (this.active) {
+      state = PresentationModeState.FULLSCREEN;
+    }
+
+    if (typeof PDFJSDev !== "undefined" && PDFJSDev.test("MOZCENTRAL")) {
+      this.eventBus.dispatch("presentationmodechanged", {
+        source: this,
+        state,
+      });
+    } else {
+      this.eventBus.dispatch("presentationmodechanged", {
+        source: this,
+        state,
+        get active() {
+          throw new Error(
+            "Deprecated parameter: `active`, please use `state` instead."
+          );
+        },
+        get switchInProgress() {
+          throw new Error(
+            "Deprecated parameter: `switchInProgress`, please use `state` instead."
+          );
+        },
+      });
+    }
   }
 
   /**
@@ -478,7 +498,6 @@ class PDFPresentationMode {
         "webkitfullscreenchange",
         this.fullscreenChangeBind
       );
-      window.addEventListener("MSFullscreenChange", this.fullscreenChangeBind);
     }
   }
 
@@ -494,10 +513,6 @@ class PDFPresentationMode {
     if (typeof PDFJSDev === "undefined" || !PDFJSDev.test("MOZCENTRAL")) {
       window.removeEventListener(
         "webkitfullscreenchange",
-        this.fullscreenChangeBind
-      );
-      window.removeEventListener(
-        "MSFullscreenChange",
         this.fullscreenChangeBind
       );
     }

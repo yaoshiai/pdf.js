@@ -13,10 +13,10 @@
  * limitations under the License.
  */
 
+import { isRef, Ref } from "../../src/core/primitives.js";
 import { Page, PDFDocument } from "../../src/core/document.js";
 import { assert } from "../../src/shared/util.js";
 import { isNodeJS } from "../../src/shared/is_node.js";
-import { isRef } from "../../src/core/primitives.js";
 import { StringStream } from "../../src/core/stream.js";
 
 class DOMFileReaderFactory {
@@ -66,6 +66,11 @@ function buildGetDocumentParams(filename, options) {
 class XRefMock {
   constructor(array) {
     this._map = Object.create(null);
+    this.stats = {
+      streamTypes: Object.create(null),
+      fontTypes: Object.create(null),
+    };
+    this._newRefNum = null;
 
     for (const key in array) {
       const obj = array[key];
@@ -73,12 +78,23 @@ class XRefMock {
     }
   }
 
+  getNewRef() {
+    if (this._newRefNum === null) {
+      this._newRefNum = Object.keys(this._map).length;
+    }
+    return Ref.get(this._newRefNum++, 0);
+  }
+
+  resetNewRef() {
+    this.newRef = null;
+  }
+
   fetch(ref) {
     return this._map[ref.toString()];
   }
 
-  fetchAsync(ref) {
-    return Promise.resolve(this.fetch(ref));
+  async fetchAsync(ref) {
+    return this.fetch(ref);
   }
 
   fetchIfRef(obj) {
@@ -88,8 +104,8 @@ class XRefMock {
     return this.fetch(obj);
   }
 
-  fetchIfRefAsync(obj) {
-    return Promise.resolve(this.fetchIfRef(obj));
+  async fetchIfRefAsync(obj) {
+    return this.fetchIfRef(obj);
   }
 }
 

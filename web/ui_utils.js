@@ -23,6 +23,8 @@ const MAX_AUTO_SCALE = 1.25;
 const SCROLLBAR_PADDING = 40;
 const VERTICAL_PADDING = 5;
 
+const LOADINGBAR_END_OFFSET_VAR = "--loadingBar-end-offset";
+
 const PresentationModeState = {
   UNKNOWN: 0,
   NORMAL: 1,
@@ -99,8 +101,6 @@ function getOutputScale(ctx) {
   const backingStoreRatio =
     ctx.webkitBackingStorePixelRatio ||
     ctx.mozBackingStorePixelRatio ||
-    ctx.msBackingStorePixelRatio ||
-    ctx.oBackingStorePixelRatio ||
     ctx.backingStorePixelRatio ||
     1;
   const pixelRatio = devicePixelRatio / backingStoreRatio;
@@ -412,6 +412,21 @@ function backtrackBeforeAllVisibleElements(index, views, top) {
 }
 
 /**
+ * @typedef {Object} GetVisibleElementsParameters
+ * @property {HTMLElement} scrollEl - A container that can possibly scroll.
+ * @property {Array} views - Objects with a `div` property that contains an
+ *   HTMLElement, which should all be descendants of `scrollEl` satisfying the
+ *   relevant layout assumptions.
+ * @property {boolean} sortByVisibility - If `true`, the returned elements are
+ *   sorted in descending order of the percent of their padding box that is
+ *   visible. The default value is `false`.
+ * @property {boolean} horizontal - If `true`, the elements are assumed to be
+ *   laid out horizontally instead of vertically. The default value is `false`.
+ * @property {boolean} rtl - If `true`, the `scrollEl` container is assumed to
+ *   be in right-to-left mode. The default value is `false`.
+ */
+
+/**
  * Generic helper to find out what elements are visible within a scroll pane.
  *
  * Well, pretty generic. There are some assumptions placed on the elements
@@ -428,22 +443,16 @@ function backtrackBeforeAllVisibleElements(index, views, top) {
  * rendering canvas. Earlier and later refer to index in `views`, not page
  * layout.)
  *
- * @param scrollEl {HTMLElement} - a container that can possibly scroll
- * @param views {Array} - objects with a `div` property that contains an
- *   HTMLElement, which should all be descendents of `scrollEl` satisfying the
- *   above layout assumptions
- * @param sortByVisibility {boolean} - if true, the returned elements are sorted
- *   in descending order of the percent of their padding box that is visible
- * @param horizontal {boolean} - if true, the elements are assumed to be laid
- *   out horizontally instead of vertically
+ * @param {GetVisibleElementsParameters}
  * @returns {Object} `{ first, last, views: [{ id, x, y, view, percent }] }`
  */
-function getVisibleElements(
+function getVisibleElements({
   scrollEl,
   views,
   sortByVisibility = false,
-  horizontal = false
-) {
+  horizontal = false,
+  rtl = false,
+}) {
   const top = scrollEl.scrollTop,
     bottom = top + scrollEl.clientHeight;
   const left = scrollEl.scrollLeft,
@@ -465,22 +474,21 @@ function getVisibleElements(
       element.offsetTop + element.clientTop + element.clientHeight;
     return elementBottom > top;
   }
-  function isElementRightAfterViewLeft(view) {
+  function isElementNextAfterViewHorizontally(view) {
     const element = view.div;
-    const elementRight =
-      element.offsetLeft + element.clientLeft + element.clientWidth;
-    return elementRight > left;
+    const elementLeft = element.offsetLeft + element.clientLeft;
+    const elementRight = elementLeft + element.clientWidth;
+    return rtl ? elementLeft < right : elementRight > left;
   }
 
   const visible = [],
     numViews = views.length;
-  let firstVisibleElementInd =
-    numViews === 0
-      ? 0
-      : binarySearchFirstItem(
-          views,
-          horizontal ? isElementRightAfterViewLeft : isElementBottomAfterViewTop
-        );
+  let firstVisibleElementInd = binarySearchFirstItem(
+    views,
+    horizontal
+      ? isElementNextAfterViewHorizontally
+      : isElementBottomAfterViewTop
+  );
 
   // Please note the return value of the `binarySearchFirstItem` function when
   // no valid element is found (hence the `firstVisibleElementInd` check below).
@@ -609,10 +617,10 @@ function getPDFFileNameFromURL(url, defaultFilename = "document.pdf") {
     );
     return defaultFilename;
   }
-  const reURI = /^(?:(?:[^:]+:)?\/\/[^\/]+)?([^?#]*)(\?[^#]*)?(#.*)?$/;
-  //              SCHEME        HOST         1.PATH  2.QUERY   3.REF
+  const reURI = /^(?:(?:[^:]+:)?\/\/[^/]+)?([^?#]*)(\?[^#]*)?(#.*)?$/;
+  //              SCHEME        HOST        1.PATH  2.QUERY   3.REF
   // Pattern to get last matching NAME.pdf
-  const reFilename = /[^\/?#=]+\.pdf\b(?!.*\.pdf\b)/i;
+  const reFilename = /[^/?#=]+\.pdf\b(?!.*\.pdf\b)/i;
   const splitURI = reURI.exec(url);
   let suggestedFilename =
     reFilename.exec(splitURI[1]) ||
@@ -636,13 +644,18 @@ function getPDFFileNameFromURL(url, defaultFilename = "document.pdf") {
   return suggestedFilename || defaultFilename;
 }
 
-function normalizeWheelEventDelta(evt) {
+function normalizeWheelEventDirection(evt) {
   let delta = Math.sqrt(evt.deltaX * evt.deltaX + evt.deltaY * evt.deltaY);
   const angle = Math.atan2(evt.deltaY, evt.deltaX);
   if (-0.25 * Math.PI < angle && angle < 0.75 * Math.PI) {
     // All that is left-up oriented has to change the sign.
     delta = -delta;
   }
+  return delta;
+}
+
+function normalizeWheelEventDelta(evt) {
+  let delta = normalizeWheelEventDirection(evt);
 
   const MOUSE_DOM_DELTA_PIXEL_MODE = 0;
   const MOUSE_DOM_DELTA_LINE_MODE = 1;
@@ -791,24 +804,32 @@ class EventBus {
     this._listeners = Object.create(null);
 
     if (typeof PDFJSDev === "undefined" || PDFJSDev.test("MOZCENTRAL")) {
-      this._isInAutomation = (options && options.isInAutomation) === true;
+      this._isInAutomation = options?.isInAutomation === true;
     }
   }
 
   /**
    * @param {string} eventName
    * @param {function} listener
+   * @param {Object} [options]
    */
-  on(eventName, listener) {
-    this._on(eventName, listener, { external: true });
+  on(eventName, listener, options = null) {
+    this._on(eventName, listener, {
+      external: true,
+      once: options?.once,
+    });
   }
 
   /**
    * @param {string} eventName
    * @param {function} listener
+   * @param {Object} [options]
    */
-  off(eventName, listener) {
-    this._off(eventName, listener, { external: true });
+  off(eventName, listener, options = null) {
+    this._off(eventName, listener, {
+      external: true,
+      once: options?.once,
+    });
   }
 
   dispatch(eventName) {
@@ -828,12 +849,12 @@ class EventBus {
     let externalListeners;
     // Making copy of the listeners array in case if it will be modified
     // during dispatch.
-    eventListeners.slice(0).forEach(function ({ listener, external }) {
+    eventListeners.slice(0).forEach(({ listener, external, once }) => {
+      if (once) {
+        this._off(eventName, listener);
+      }
       if (external) {
-        if (!externalListeners) {
-          externalListeners = [];
-        }
-        externalListeners.push(listener);
+        (externalListeners ||= []).push(listener);
         return;
       }
       listener.apply(null, args);
@@ -841,7 +862,7 @@ class EventBus {
     // Dispatch any "external" listeners *after* the internal ones, to give the
     // viewer components time to handle events and update their state first.
     if (externalListeners) {
-      externalListeners.forEach(function (listener) {
+      externalListeners.forEach(listener => {
         listener.apply(null, args);
       });
       externalListeners = null;
@@ -858,13 +879,11 @@ class EventBus {
    * @ignore
    */
   _on(eventName, listener, options = null) {
-    let eventListeners = this._listeners[eventName];
-    if (!eventListeners) {
-      this._listeners[eventName] = eventListeners = [];
-    }
+    const eventListeners = (this._listeners[eventName] ||= []);
     eventListeners.push({
       listener,
-      external: (options && options.external) === true,
+      external: options?.external === true,
+      once: options?.once === true,
     });
   }
 
@@ -937,7 +956,8 @@ class ProgressBar {
     const container = viewer.parentNode;
     const scrollbarWidth = container.offsetWidth - viewer.offsetWidth;
     if (scrollbarWidth > 0) {
-      this.bar.style.width = `calc(100% - ${scrollbarWidth}px)`;
+      const doc = document.documentElement;
+      doc.style.setProperty(LOADINGBAR_END_OFFSET_VAR, `${scrollbarWidth}px`);
     }
   }
 
@@ -947,7 +967,6 @@ class ProgressBar {
     }
     this.visible = false;
     this.bar.classList.add("hidden");
-    document.body.classList.remove("loadingInProgress");
   }
 
   show() {
@@ -955,7 +974,6 @@ class ProgressBar {
       return;
     }
     this.visible = true;
-    document.body.classList.add("loadingInProgress");
     this.bar.classList.remove("hidden");
   }
 }
@@ -981,6 +999,28 @@ function moveToEndOfArray(arr, condition) {
   }
 }
 
+/**
+ * Get the active or focused element in current DOM.
+ *
+ * Recursively search for the truly active or focused element in case there are
+ * shadow DOMs.
+ *
+ * @returns {Element} the truly active or focused element.
+ */
+function getActiveOrFocusedElement() {
+  let curRoot = document;
+  let curActiveOrFocused =
+    curRoot.activeElement || curRoot.querySelector(":focus");
+
+  while (curActiveOrFocused && curActiveOrFocused.shadowRoot) {
+    curRoot = curActiveOrFocused.shadowRoot;
+    curActiveOrFocused =
+      curRoot.activeElement || curRoot.querySelector(":focus");
+  }
+
+  return curActiveOrFocused;
+}
+
 export {
   AutoPrintRegExp,
   CSS_UNITS,
@@ -1003,7 +1043,6 @@ export {
   SpreadMode,
   NullL10n,
   EventBus,
-  clamp,
   ProgressBar,
   getPDFFileNameFromURL,
   noContextMenuHandler,
@@ -1017,9 +1056,11 @@ export {
   scrollIntoView,
   watchScroll,
   binarySearchFirstItem,
+  normalizeWheelEventDirection,
   normalizeWheelEventDelta,
   animationStarted,
   WaitOnType,
   waitOnEventOrTimeout,
   moveToEndOfArray,
+  getActiveOrFocusedElement,
 };

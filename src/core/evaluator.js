@@ -12,6 +12,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* eslint-disable no-var */
 
 import {
   AbortException,
@@ -80,6 +81,7 @@ import {
   LocalColorSpaceCache,
   LocalGStateCache,
   LocalImageCache,
+  LocalTilingPatternCache,
 } from "./image_utils.js";
 import { bidi } from "./bidi.js";
 import { ColorSpace } from "./colorspace.js";
@@ -237,12 +239,15 @@ class PartialEvaluator {
     return newEvaluator;
   }
 
-  hasBlendModes(resources) {
+  hasBlendModes(resources, nonBlendModesSet) {
     if (!(resources instanceof Dict)) {
       return false;
     }
+    if (resources.objId && nonBlendModesSet.has(resources.objId)) {
+      return false;
+    }
 
-    const processed = new RefSet();
+    const processed = new RefSet(nonBlendModesSet);
     if (resources.objId) {
       processed.put(resources.objId);
     }
@@ -342,6 +347,13 @@ class PartialEvaluator {
         }
       }
     }
+
+    // When no blend modes exist, there's no need re-fetch/re-parse any of the
+    // processed `Ref`s again for subsequent pages. This helps reduce redundant
+    // `XRef.fetch` calls for some documents (e.g. issue6961.pdf).
+    processed.forEach(ref => {
+      nonBlendModesSet.put(ref);
+    });
     return false;
   }
 
@@ -391,6 +403,14 @@ class PartialEvaluator {
       bbox = Util.normalizeRect(bbox);
     } else {
       bbox = null;
+    }
+    let optionalContent = null;
+    if (dict.has("OC")) {
+      optionalContent = await this.parseMarkedContentProps(
+        dict.get("OC"),
+        resources
+      );
+      operatorList.addOp(OPS.beginMarkedContentProps, ["OC", optionalContent]);
     }
     var group = dict.get("Group");
     if (group) {
@@ -449,20 +469,17 @@ class PartialEvaluator {
       if (group) {
         operatorList.addOp(OPS.endGroup, [groupOptions]);
       }
+
+      if (optionalContent) {
+        operatorList.addOp(OPS.endMarkedContent, []);
+      }
     });
   }
 
   _sendImgData(objId, imgData, cacheGlobally = false) {
     const transfers = imgData ? [imgData.data.buffer] : null;
 
-    if (this.parsingType3Font) {
-      return this.handler.sendWithPromise(
-        "commonobj",
-        [objId, "FontType3Res", imgData],
-        transfers
-      );
-    }
-    if (cacheGlobally) {
+    if (this.parsingType3Font || cacheGlobally) {
       return this.handler.send(
         "commonobj",
         [objId, "Image", imgData],
@@ -581,7 +598,7 @@ class PartialEvaluator {
     operatorList.addDependency(objId);
     args = [objId, w, h];
 
-    const imgPromise = PDFImage.buildImage({
+    PDFImage.buildImage({
       xref: this.xref,
       res: resources,
       image,
@@ -599,13 +616,6 @@ class PartialEvaluator {
 
         return this._sendImgData(objId, /* imgData = */ null, cacheGlobally);
       });
-
-    if (this.parsingType3Font) {
-      // In the very rare case where a Type3 image resource is being parsed,
-      // wait for the image to be both decoded *and* sent to simplify the
-      // rendering code on the main-thread (see issue10717.pdf).
-      await imgPromise;
-    }
 
     operatorList.addOp(OPS.paintImageXObject, args);
     if (cacheKey) {
@@ -670,21 +680,70 @@ class PartialEvaluator {
     );
   }
 
+  handleTransferFunction(tr) {
+    let transferArray;
+    if (Array.isArray(tr)) {
+      transferArray = tr;
+    } else if (isPDFFunction(tr)) {
+      transferArray = [tr];
+    } else {
+      return null; // Not a valid transfer function entry.
+    }
+
+    const transferMaps = [];
+    let numFns = 0,
+      numEffectfulFns = 0;
+    for (const entry of transferArray) {
+      const transferObj = this.xref.fetchIfRef(entry);
+      numFns++;
+
+      if (isName(transferObj, "Identity")) {
+        transferMaps.push(null);
+        continue;
+      } else if (!isPDFFunction(transferObj)) {
+        return null; // Not a valid transfer function object.
+      }
+
+      const transferFn = this._pdfFunctionFactory.create(transferObj);
+      const transferMap = new Uint8Array(256),
+        tmp = new Float32Array(1);
+      for (let j = 0; j < 256; j++) {
+        tmp[0] = j / 255;
+        transferFn(tmp, 0, tmp, 0);
+        transferMap[j] = (tmp[0] * 255) | 0;
+      }
+      transferMaps.push(transferMap);
+      numEffectfulFns++;
+    }
+
+    if (!(numFns === 1 || numFns === 4)) {
+      return null; // Only 1 or 4 functions are supported, by the specification.
+    }
+    if (numEffectfulFns === 0) {
+      return null; // Only /Identity transfer functions found, which are no-ops.
+    }
+    return transferMaps;
+  }
+
   handleTilingType(
     fn,
-    args,
+    color,
     resources,
     pattern,
     patternDict,
     operatorList,
-    task
+    task,
+    cacheKey,
+    localTilingPatternCache
   ) {
     // Create an IR of the pattern code.
     const tilingOpList = new OperatorList();
     // Merge the available resources, to prevent issues when the patternDict
     // is missing some /Resources entries (fixes issue6541.pdf).
-    const resourcesArray = [patternDict.get("Resources"), resources];
-    const patternResources = Dict.merge(this.xref, resourcesArray);
+    const patternResources = Dict.merge({
+      xref: this.xref,
+      dictArray: [patternDict.get("Resources"), resources],
+    });
 
     return this.getOperatorList({
       stream: pattern,
@@ -693,56 +752,71 @@ class PartialEvaluator {
       operatorList: tilingOpList,
     })
       .then(function () {
-        return getTilingPatternIR(
-          {
-            fnArray: tilingOpList.fnArray,
-            argsArray: tilingOpList.argsArray,
-          },
+        const operatorListIR = tilingOpList.getIR();
+        const tilingPatternIR = getTilingPatternIR(
+          operatorListIR,
           patternDict,
-          args
+          color
         );
-      })
-      .then(
-        function (tilingPatternIR) {
-          // Add the dependencies to the parent operator list so they are
-          // resolved before the sub operator list is executed synchronously.
-          operatorList.addDependencies(tilingOpList.dependencies);
-          operatorList.addOp(fn, tilingPatternIR);
-        },
-        reason => {
-          if (reason instanceof AbortException) {
-            return;
-          }
-          if (this.options.ignoreErrors) {
-            // Error(s) in the TilingPattern -- sending unsupported feature
-            // notification and allow rendering to continue.
-            this.handler.send("UnsupportedFeature", {
-              featureId: UNSUPPORTED_FEATURES.errorTilingPattern,
-            });
-            warn(`handleTilingType - ignoring pattern: "${reason}".`);
-            return;
-          }
-          throw reason;
+        // Add the dependencies to the parent operator list so they are
+        // resolved before the sub operator list is executed synchronously.
+        operatorList.addDependencies(tilingOpList.dependencies);
+        operatorList.addOp(fn, tilingPatternIR);
+
+        if (cacheKey) {
+          localTilingPatternCache.set(cacheKey, patternDict.objId, {
+            operatorListIR,
+            dict: patternDict,
+          });
         }
-      );
+      })
+      .catch(reason => {
+        if (reason instanceof AbortException) {
+          return;
+        }
+        if (this.options.ignoreErrors) {
+          // Error(s) in the TilingPattern -- sending unsupported feature
+          // notification and allow rendering to continue.
+          this.handler.send("UnsupportedFeature", {
+            featureId: UNSUPPORTED_FEATURES.errorTilingPattern,
+          });
+          warn(`handleTilingType - ignoring pattern: "${reason}".`);
+          return;
+        }
+        throw reason;
+      });
   }
 
-  handleSetFont(resources, fontArgs, fontRef, operatorList, task, state) {
+  handleSetFont(
+    resources,
+    fontArgs,
+    fontRef,
+    operatorList,
+    task,
+    state,
+    fallbackFontDict = null
+  ) {
     // TODO(mack): Not needed?
-    var fontName;
+    var fontName,
+      fontSize = 0;
     if (fontArgs) {
       fontArgs = fontArgs.slice();
       fontName = fontArgs[0].name;
+      fontSize = fontArgs[1];
     }
 
-    return this.loadFont(fontName, fontRef, resources)
+    return this.loadFont(fontName, fontRef, resources, fallbackFontDict)
       .then(translated => {
         if (!translated.font.isType3Font) {
           return translated;
         }
         return translated
-          .loadType3Data(this, resources, operatorList, task)
+          .loadType3Data(this, resources, task)
           .then(function () {
+            // Add the dependencies to the parent operatorList so they are
+            // resolved before Type3 operatorLists are executed synchronously.
+            operatorList.addDependencies(translated.type3Dependencies);
+
             return translated;
           })
           .catch(reason => {
@@ -761,6 +835,8 @@ class PartialEvaluator {
       })
       .then(translated => {
         state.font = translated.font;
+        state.fontSize = fontSize;
+        state.fontName = fontName;
         translated.send(this.handler);
         return translated.loadedName;
       });
@@ -840,6 +916,8 @@ class PartialEvaluator {
           gStateObj.push([key, value]);
           break;
         case "Font":
+          isSimpleGState = false;
+
           promise = promise.then(() => {
             return this.handleSetFont(
               resources,
@@ -879,7 +957,10 @@ class PartialEvaluator {
           } else {
             warn("Unsupported SMask type");
           }
-
+          break;
+        case "TR":
+          const transferMaps = this.handleTransferFunction(value);
+          gStateObj.push([key, transferMaps]);
           break;
         // Only generate info log messages for the following since
         // they are unlikely to have a big impact on the rendering.
@@ -890,7 +971,6 @@ class PartialEvaluator {
         case "BG2":
         case "UCR":
         case "UCR2":
-        case "TR":
         case "TR2":
         case "HT":
         case "SM":
@@ -916,16 +996,14 @@ class PartialEvaluator {
     });
   }
 
-  loadFont(fontName, font, resources) {
-    const errorFont = () => {
-      return Promise.resolve(
-        new TranslatedFont({
-          loadedName: "g_font_error",
-          font: new ErrorFont(`Font "${fontName}" is not available.`),
-          dict: font,
-          extraProperties: this.options.fontExtraProperties,
-        })
-      );
+  loadFont(fontName, font, resources, fallbackFontDict = null) {
+    const errorFont = async () => {
+      return new TranslatedFont({
+        loadedName: "g_font_error",
+        font: new ErrorFont(`Font "${fontName}" is not available.`),
+        dict: font,
+        extraProperties: this.options.fontExtraProperties,
+      });
     };
 
     var fontRef,
@@ -960,7 +1038,11 @@ class PartialEvaluator {
 
       // Falling back to a default font to avoid completely broken rendering,
       // but note that there're no guarantees that things will look "correct".
-      fontRef = PartialEvaluator.fallbackFontDict;
+      if (fallbackFontDict) {
+        fontRef = fallbackFontDict;
+      } else {
+        fontRef = PartialEvaluator.fallbackFontDict;
+      }
     }
 
     if (this.fontCache.has(fontRef)) {
@@ -972,10 +1054,10 @@ class PartialEvaluator {
       return errorFont();
     }
 
-    // We are holding `font.translated` references just for `fontRef`s that
+    // We are holding `font.cacheKey` references only for `fontRef`s that
     // are not actually `Ref`s, but rather `Dict`s. See explanation below.
-    if (font.translated) {
-      return font.translated;
+    if (font.cacheKey && this.fontCache.has(font.cacheKey)) {
+      return this.fontCache.get(font.cacheKey);
     }
 
     var fontCapability = createPromiseCapability();
@@ -1015,18 +1097,16 @@ class PartialEvaluator {
 
     // Workaround for bad PDF generators that reference fonts incorrectly,
     // where `fontRef` is a `Dict` rather than a `Ref` (fixes bug946506.pdf).
-    // In this case we should not put the font into `this.fontCache` (which is
-    // a `RefSetCache`), since it's not meaningful to use a `Dict` as a key.
+    // In this case we cannot put the font into `this.fontCache` (which is
+    // a `RefSetCache`), since it's not possible to use a `Dict` as a key.
     //
     // However, if we don't cache the font it's not possible to remove it
     // when `cleanup` is triggered from the API, which causes issues on
-    // subsequent rendering operations (see issue7403.pdf).
-    // A simple workaround would be to just not hold `font.translated`
-    // references in this case, but this would force us to unnecessarily load
-    // the same fonts over and over.
+    // subsequent rendering operations (see issue7403.pdf) and would force us
+    // to unnecessarily load the same fonts over and over.
     //
-    // Instead, we cheat a bit by attempting to use a modified `fontID` as a
-    // key in `this.fontCache`, to allow the font to be cached.
+    // Instead, we cheat a bit by using a modified `fontID` as a key in
+    // `this.fontCache`, to allow the font to be cached.
     // NOTE: This works because `RefSetCache` calls `toString()` on provided
     //       keys. Also, since `fontRef` is used when getting cached fonts,
     //       we'll not accidentally match fonts cached with the `fontID`.
@@ -1036,7 +1116,8 @@ class PartialEvaluator {
       if (!fontID) {
         fontID = this.idFactory.createFontId();
       }
-      this.fontCache.put(`id_${fontID}`, fontCapability.promise);
+      font.cacheKey = `cacheKey_${fontID}`;
+      this.fontCache.put(font.cacheKey, fontCapability.promise);
     }
     assert(
       fontID && fontID.startsWith("f"),
@@ -1047,17 +1128,7 @@ class PartialEvaluator {
     // load them asynchronously before calling display on a page.
     font.loadedName = `${this.idFactory.getDocId()}_${fontID}`;
 
-    font.translated = fontCapability.promise;
-
-    // TODO move promises into translate font
-    var translatedPromise;
-    try {
-      translatedPromise = this.translateFont(preEvaluatedFont);
-    } catch (e) {
-      translatedPromise = Promise.reject(e);
-    }
-
-    translatedPromise
+    this.translateFont(preEvaluatedFont)
       .then(translatedFont => {
         if (translatedFont.fontType !== undefined) {
           var xrefFontStats = xref.stats.fontTypes;
@@ -1163,7 +1234,7 @@ class PartialEvaluator {
     });
   }
 
-  async handleColorN(
+  handleColorN(
     operatorList,
     fn,
     args,
@@ -1171,45 +1242,131 @@ class PartialEvaluator {
     patterns,
     resources,
     task,
-    localColorSpaceCache
+    localColorSpaceCache,
+    localTilingPatternCache
   ) {
     // compile tiling patterns
-    var patternName = args[args.length - 1];
+    const patternName = args.pop();
     // SCN/scn applies patterns along with normal colors
-    var pattern;
-    if (isName(patternName) && (pattern = patterns.get(patternName.name))) {
-      var dict = isStream(pattern) ? pattern.dict : pattern;
-      var typeNum = dict.get("PatternType");
+    if (patternName instanceof Name) {
+      const name = patternName.name;
 
-      if (typeNum === PatternType.TILING) {
-        var color = cs.base ? cs.base.getRgb(args, 0) : null;
-        return this.handleTilingType(
-          fn,
-          color,
-          resources,
-          pattern,
-          dict,
-          operatorList,
-          task
-        );
-      } else if (typeNum === PatternType.SHADING) {
-        var shading = dict.get("Shading");
-        var matrix = dict.getArray("Matrix");
-        pattern = Pattern.parseShading(
-          shading,
-          matrix,
-          this.xref,
-          resources,
-          this.handler,
-          this._pdfFunctionFactory,
-          localColorSpaceCache
-        );
-        operatorList.addOp(fn, pattern.getIR());
-        return undefined;
+      const localTilingPattern = localTilingPatternCache.getByName(name);
+      if (localTilingPattern) {
+        try {
+          const color = cs.base ? cs.base.getRgb(args, 0) : null;
+          const tilingPatternIR = getTilingPatternIR(
+            localTilingPattern.operatorListIR,
+            localTilingPattern.dict,
+            color
+          );
+          operatorList.addOp(fn, tilingPatternIR);
+          return undefined;
+        } catch (ex) {
+          if (ex instanceof MissingDataException) {
+            throw ex;
+          }
+          // Handle any errors during normal TilingPattern parsing.
+        }
       }
-      throw new FormatError(`Unknown PatternType: ${typeNum}`);
+      // TODO: Attempt to lookup cached TilingPatterns by reference as well,
+      //       if and only if there are PDF documents where doing so would
+      //       significantly improve performance.
+
+      let pattern = patterns.get(name);
+      if (pattern) {
+        var dict = isStream(pattern) ? pattern.dict : pattern;
+        var typeNum = dict.get("PatternType");
+
+        if (typeNum === PatternType.TILING) {
+          const color = cs.base ? cs.base.getRgb(args, 0) : null;
+          return this.handleTilingType(
+            fn,
+            color,
+            resources,
+            pattern,
+            dict,
+            operatorList,
+            task,
+            /* cacheKey = */ name,
+            localTilingPatternCache
+          );
+        } else if (typeNum === PatternType.SHADING) {
+          var shading = dict.get("Shading");
+          var matrix = dict.getArray("Matrix");
+          pattern = Pattern.parseShading(
+            shading,
+            matrix,
+            this.xref,
+            resources,
+            this.handler,
+            this._pdfFunctionFactory,
+            localColorSpaceCache
+          );
+          operatorList.addOp(fn, pattern.getIR());
+          return undefined;
+        }
+        throw new FormatError(`Unknown PatternType: ${typeNum}`);
+      }
     }
     throw new FormatError(`Unknown PatternName: ${patternName}`);
+  }
+
+  async parseMarkedContentProps(contentProperties, resources) {
+    let optionalContent;
+    if (isName(contentProperties)) {
+      const properties = resources.get("Properties");
+      optionalContent = properties.get(contentProperties.name);
+    } else if (isDict(contentProperties)) {
+      optionalContent = contentProperties;
+    } else {
+      throw new FormatError("Optional content properties malformed.");
+    }
+
+    const optionalContentType = optionalContent.get("Type").name;
+    if (optionalContentType === "OCG") {
+      return {
+        type: optionalContentType,
+        id: optionalContent.objId,
+      };
+    } else if (optionalContentType === "OCMD") {
+      const optionalContentGroups = optionalContent.get("OCGs");
+      if (
+        Array.isArray(optionalContentGroups) ||
+        isDict(optionalContentGroups)
+      ) {
+        const groupIds = [];
+        if (Array.isArray(optionalContentGroups)) {
+          optionalContent.get("OCGs").forEach(ocg => {
+            groupIds.push(ocg.toString());
+          });
+        } else {
+          // Dictionary, just use the obj id.
+          groupIds.push(optionalContentGroups.objId);
+        }
+
+        let expression = null;
+        if (optionalContent.get("VE")) {
+          // TODO support visibility expression.
+          expression = true;
+        }
+
+        return {
+          type: optionalContentType,
+          ids: groupIds,
+          policy: isName(optionalContent.get("P"))
+            ? optionalContent.get("P").name
+            : null,
+          expression,
+        };
+      } else if (isRef(optionalContentGroups)) {
+        return {
+          type: optionalContentType,
+          id: optionalContentGroups.toString(),
+        };
+      }
+    }
+    return null;
   }
 
   getOperatorList({
@@ -1218,6 +1375,7 @@ class PartialEvaluator {
     resources,
     operatorList,
     initialState = null,
+    fallbackFontDict = null,
   }) {
     // Ensure that `resources`/`initialState` is correctly initialized,
     // even if the provided parameter is e.g. `null`.
@@ -1234,6 +1392,7 @@ class PartialEvaluator {
     const localImageCache = new LocalImageCache();
     const localColorSpaceCache = new LocalColorSpaceCache();
     const localGStateCache = new LocalGStateCache();
+    const localTilingPatternCache = new LocalTilingPatternCache();
 
     var xobjs = resources.get("XObject") || Dict.empty;
     var patterns = resources.get("Pattern") || Dict.empty;
@@ -1397,7 +1556,8 @@ class PartialEvaluator {
                   null,
                   operatorList,
                   task,
-                  stateManager.state
+                  stateManager.state,
+                  fallbackFontDict
                 )
                 .then(function (loadedName) {
                   operatorList.addDependency(loadedName);
@@ -1589,7 +1749,8 @@ class PartialEvaluator {
                   patterns,
                   resources,
                   task,
-                  localColorSpaceCache
+                  localColorSpaceCache,
+                  localTilingPatternCache
                 )
               );
               return;
@@ -1609,7 +1770,8 @@ class PartialEvaluator {
                   patterns,
                   resources,
                   task,
-                  localColorSpaceCache
+                  localColorSpaceCache,
+                  localTilingPatternCache
                 )
               );
               return;
@@ -1714,9 +1876,6 @@ class PartialEvaluator {
             continue;
           case OPS.markPoint:
           case OPS.markPointProps:
-          case OPS.beginMarkedContent:
-          case OPS.beginMarkedContentProps:
-          case OPS.endMarkedContent:
           case OPS.beginCompat:
           case OPS.endCompat:
             // Ignore operators where the corresponding handlers are known to
@@ -1726,6 +1885,45 @@ class PartialEvaluator {
             // e.g. as done in https://github.com/mozilla/pdf.js/pull/6266,
             // but doing so is meaningless without knowing the semantics.
             continue;
+          case OPS.beginMarkedContentProps:
+            if (!isName(args[0])) {
+              warn(`Expected name for beginMarkedContentProps arg0=${args[0]}`);
+              continue;
+            }
+            if (args[0].name === "OC") {
+              next(
+                self
+                  .parseMarkedContentProps(args[1], resources)
+                  .then(data => {
+                    operatorList.addOp(OPS.beginMarkedContentProps, [
+                      "OC",
+                      data,
+                    ]);
+                  })
+                  .catch(reason => {
+                    if (reason instanceof AbortException) {
+                      return;
+                    }
+                    if (self.options.ignoreErrors) {
+                      self.handler.send("UnsupportedFeature", {
+                        featureId: UNSUPPORTED_FEATURES.errorMarkedContent,
+                      });
+                      warn(
+                        `getOperatorList - ignoring beginMarkedContentProps: "${reason}".`
+                      );
+                      return;
+                    }
+                    throw reason;
+                  })
+              );
+              return;
+            }
+            // Other marked content types aren't supported yet.
+            args = [args[0].name];
+
+            break;
+          case OPS.beginMarkedContent:
+          case OPS.endMarkedContent:
           default:
             // Note: Ignore the operator if it has `Dict` arguments, since
             // those are non-serializable, otherwise postMessage will throw
@@ -3135,7 +3333,7 @@ class PartialEvaluator {
     };
   }
 
-  translateFont(preEvaluatedFont) {
+  async translateFont(preEvaluatedFont) {
     var baseDict = preEvaluatedFont.baseDict;
     var dict = preEvaluatedFont.dict;
     var composite = preEvaluatedFont.composite;
@@ -3227,8 +3425,8 @@ class PartialEvaluator {
       var baseFontStr = baseFont && baseFont.name;
       if (fontNameStr !== baseFontStr) {
         info(
-          `The FontDescriptor\'s FontName is "${fontNameStr}" but ` +
-            `should be the same as the Font\'s BaseFont "${baseFontStr}".`
+          `The FontDescriptor's FontName is "${fontNameStr}" but ` +
+            `should be the same as the Font's BaseFont "${baseFontStr}".`
         );
         // Workaround for cases where e.g. fontNameStr = 'Arial' and
         // baseFontStr = 'Arial,Bold' (needed when no font file is embedded).
@@ -3280,36 +3478,30 @@ class PartialEvaluator {
       isType3Font: false,
     };
 
-    var cMapPromise;
     if (composite) {
-      var cidEncoding = baseDict.get("Encoding");
+      const cidEncoding = baseDict.get("Encoding");
       if (isName(cidEncoding)) {
         properties.cidEncoding = cidEncoding.name;
       }
-      cMapPromise = CMapFactory.create({
+      const cMap = await CMapFactory.create({
         encoding: cidEncoding,
         fetchBuiltInCMap: this._fetchBuiltInCMapBound,
         useCMap: null,
-      }).then(function (cMap) {
-        properties.cMap = cMap;
-        properties.vertical = properties.cMap.vertical;
       });
-    } else {
-      cMapPromise = Promise.resolve(undefined);
+      properties.cMap = cMap;
+      properties.vertical = properties.cMap.vertical;
     }
 
-    return cMapPromise
-      .then(() => {
-        return this.extractDataStructures(dict, baseDict, properties);
-      })
-      .then(newProperties => {
+    return this.extractDataStructures(dict, baseDict, properties).then(
+      newProperties => {
         this.extractWidths(dict, descriptor, newProperties);
 
         if (type === "Type3") {
           newProperties.isType3Font = true;
         }
         return new Font(fontName.name, fontFile, newProperties);
-      });
+      }
+    );
   }
 
   static buildFontPaths(font, glyphs, handler) {
@@ -3354,6 +3546,7 @@ class TranslatedFont {
     this.dict = dict;
     this._extraProperties = extraProperties;
     this.type3Loaded = null;
+    this.type3Dependencies = font.isType3Font ? new Set() : null;
     this.sent = false;
   }
 
@@ -3386,36 +3579,30 @@ class TranslatedFont {
     PartialEvaluator.buildFontPaths(this.font, glyphs, handler);
   }
 
-  loadType3Data(evaluator, resources, parentOperatorList, task) {
-    if (!this.font.isType3Font) {
-      throw new Error("Must be a Type3 font.");
-    }
-
+  loadType3Data(evaluator, resources, task) {
     if (this.type3Loaded) {
       return this.type3Loaded;
+    }
+    if (!this.font.isType3Font) {
+      throw new Error("Must be a Type3 font.");
     }
     // When parsing Type3 glyphs, always ignore them if there are errors.
     // Compared to the parsing of e.g. an entire page, it doesn't really
     // make sense to only be able to render a Type3 glyph partially.
-    //
-    // Also, ensure that any Type3 image resources (which should be very rare
-    // in practice) are completely decoded on the worker-thread, to simplify
-    // the rendering code on the main-thread (see issue10717.pdf).
     var type3Options = Object.create(evaluator.options);
     type3Options.ignoreErrors = false;
     var type3Evaluator = evaluator.clone(type3Options);
     type3Evaluator.parsingType3Font = true;
 
-    var translatedFont = this.font;
+    const translatedFont = this.font,
+      type3Dependencies = this.type3Dependencies;
     var loadCharProcsPromise = Promise.resolve();
     var charProcs = this.dict.get("CharProcs");
     var fontResources = this.dict.get("Resources") || resources;
-    var charProcKeys = charProcs.getKeys();
     var charProcOperatorList = Object.create(null);
 
-    for (var i = 0, n = charProcKeys.length; i < n; ++i) {
-      const key = charProcKeys[i];
-      loadCharProcsPromise = loadCharProcsPromise.then(function () {
+    for (const key of charProcs.getKeys()) {
+      loadCharProcsPromise = loadCharProcsPromise.then(() => {
         var glyphStream = charProcs.get(key);
         var operatorList = new OperatorList();
         return type3Evaluator
@@ -3425,12 +3612,21 @@ class TranslatedFont {
             resources: fontResources,
             operatorList,
           })
-          .then(function () {
+          .then(() => {
+            // According to the PDF specification, section "9.6.5 Type 3 Fonts"
+            // and "Table 113":
+            //  "A glyph description that begins with the d1 operator should
+            //   not execute any operators that set the colour (or other
+            //   colour-related parameters) in the graphics state;
+            //   any use of such operators shall be ignored."
+            if (operatorList.fnArray[0] === OPS.setCharWidthAndBounds) {
+              this._removeType3ColorOperators(operatorList);
+            }
             charProcOperatorList[key] = operatorList.getIR();
 
-            // Add the dependencies to the parent operator list so they are
-            // resolved before sub operator list is executed synchronously.
-            parentOperatorList.addDependencies(operatorList.dependencies);
+            for (const dependency of operatorList.dependencies) {
+              type3Dependencies.add(dependency);
+            }
           })
           .catch(function (reason) {
             warn(`Type3 font resource "${key}" is not available.`);
@@ -3443,6 +3639,68 @@ class TranslatedFont {
       translatedFont.charProcOperatorList = charProcOperatorList;
     });
     return this.type3Loaded;
+  }
+
+  /**
+   * @private
+   */
+  _removeType3ColorOperators(operatorList) {
+    if (
+      typeof PDFJSDev === "undefined" ||
+      PDFJSDev.test("!PRODUCTION || TESTING")
+    ) {
+      assert(
+        operatorList.fnArray[0] === OPS.setCharWidthAndBounds,
+        "Type3 glyph shall start with the d1 operator."
+      );
+    }
+    let i = 1,
+      ii = operatorList.length;
+    while (i < ii) {
+      switch (operatorList.fnArray[i]) {
+        case OPS.setStrokeColorSpace:
+        case OPS.setFillColorSpace:
+        case OPS.setStrokeColor:
+        case OPS.setStrokeColorN:
+        case OPS.setFillColor:
+        case OPS.setFillColorN:
+        case OPS.setStrokeGray:
+        case OPS.setFillGray:
+        case OPS.setStrokeRGBColor:
+        case OPS.setFillRGBColor:
+        case OPS.setStrokeCMYKColor:
+        case OPS.setFillCMYKColor:
+        case OPS.shadingFill:
+        case OPS.setRenderingIntent:
+          operatorList.fnArray.splice(i, 1);
+          operatorList.argsArray.splice(i, 1);
+          ii--;
+          continue;
+
+        case OPS.setGState:
+          const gStateObj = operatorList.argsArray[i];
+          let j = 0,
+            jj = gStateObj.length;
+          while (j < jj) {
+            const [gStateKey] = gStateObj[j];
+            switch (gStateKey) {
+              case "TR":
+              case "TR2":
+              case "HT":
+              case "BG":
+              case "BG2":
+              case "UCR":
+              case "UCR2":
+                gStateObj.splice(j, 1);
+                jj--;
+                continue;
+            }
+            j++;
+          }
+          break;
+      }
+      i++;
+    }
   }
 }
 

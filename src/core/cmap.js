@@ -12,6 +12,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* eslint-disable no-var */
 
 import {
   CMapCompressionType,
@@ -993,11 +994,13 @@ var CMapFactory = (function CMapFactoryClosure() {
       var cMap = new CMap(true);
 
       if (compressionType === CMapCompressionType.BINARY) {
-        return new BinaryCMapReader().process(cMapData, cMap, function (
-          useCMap
-        ) {
-          return extendCMap(cMap, fetchBuiltInCMap, useCMap);
-        });
+        return new BinaryCMapReader().process(
+          cMapData,
+          cMap,
+          function (useCMap) {
+            return extendCMap(cMap, fetchBuiltInCMap, useCMap);
+          }
+        );
       }
       if (compressionType === CMapCompressionType.NONE) {
         var lexer = new Lexer(new Stream(cMapData));

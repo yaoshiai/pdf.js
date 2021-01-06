@@ -12,7 +12,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/* eslint no-var: error */
 
 import {
   assert,
@@ -65,11 +64,16 @@ class BaseCanvasFactory {
 }
 
 class DOMCanvasFactory extends BaseCanvasFactory {
+  constructor({ ownerDocument = globalThis.document } = {}) {
+    super();
+    this._document = ownerDocument;
+  }
+
   create(width, height) {
     if (width <= 0 || height <= 0) {
       throw new Error("Invalid canvas size");
     }
-    const canvas = document.createElement("canvas");
+    const canvas = this._document.createElement("canvas");
     const context = canvas.getContext("2d");
     canvas.width = width;
     canvas.height = height;
@@ -194,7 +198,8 @@ class DOMSVGFactory {
 
 /**
  * @typedef {Object} PageViewportParameters
- * @property {Array} viewBox - The xMin, yMin, xMax and yMax coordinates.
+ * @property {Array<number>} viewBox - The xMin, yMin, xMax and
+ *   yMax coordinates.
  * @property {number} scale - The scale of the viewport.
  * @property {number} rotation - The rotation, in degrees, of the viewport.
  * @property {number} [offsetX] - The horizontal, i.e. x-axis, offset. The
@@ -446,7 +451,10 @@ function addLinkAttributes(link, { url, target, rel, enabled = true } = {}) {
   link.rel = typeof rel === "string" ? rel : DEFAULT_LINK_REL;
 }
 
-// Gets the file name from a given URL.
+/**
+ * Gets the file name from a given URL.
+ * @param {string} url
+ */
 function getFilenameFromUrl(url) {
   const anchor = url.indexOf("#");
   const query = url.indexOf("?");
@@ -520,12 +528,22 @@ function isValidFetchUrl(url, baseUrl) {
   }
 }
 
-function loadScript(src) {
+/**
+ * @param {string} src
+ * @param {boolean} [removeScriptElement]
+ * @returns {Promise<void>}
+ */
+function loadScript(src, removeScriptElement = false) {
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
     script.src = src;
 
-    script.onload = resolve;
+    script.onload = function (evt) {
+      if (removeScriptElement) {
+        script.remove();
+      }
+      resolve(evt);
+    };
     script.onerror = function () {
       reject(new Error(`Cannot load script at: ${script.src}`));
     };
@@ -566,16 +584,16 @@ class PDFDateString {
     if (!pdfDateStringRegex) {
       pdfDateStringRegex = new RegExp(
         "^D:" + // Prefix (required)
-        "(\\d{4})" + // Year (required)
-        "(\\d{2})?" + // Month (optional)
-        "(\\d{2})?" + // Day (optional)
-        "(\\d{2})?" + // Hour (optional)
-        "(\\d{2})?" + // Minute (optional)
-        "(\\d{2})?" + // Second (optional)
-        "([Z|+|-])?" + // Universal time relation (optional)
-        "(\\d{2})?" + // Offset hour (optional)
-        "'?" + // Splitting apostrophe (optional)
-        "(\\d{2})?" + // Offset minute (optional)
+          "(\\d{4})" + // Year (required)
+          "(\\d{2})?" + // Month (optional)
+          "(\\d{2})?" + // Day (optional)
+          "(\\d{2})?" + // Hour (optional)
+          "(\\d{2})?" + // Minute (optional)
+          "(\\d{2})?" + // Second (optional)
+          "([Z|+|-])?" + // Universal time relation (optional)
+          "(\\d{2})?" + // Offset hour (optional)
+          "'?" + // Splitting apostrophe (optional)
+          "(\\d{2})?" + // Offset minute (optional)
           "'?" // Trailing apostrophe (optional)
       );
     }

@@ -12,7 +12,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/* uses XRef */
+/* eslint-disable no-var */
 
 import { assert, unreachable } from "../shared/util.js";
 
@@ -171,24 +171,70 @@ var Dict = (function DictClosure() {
     },
   };
 
-  Dict.empty = new Dict(null);
+  Dict.empty = (function () {
+    const emptyDict = new Dict(null);
 
-  Dict.merge = function (xref, dictArray) {
+    emptyDict.set = (key, value) => {
+      unreachable("Should not call `set` on the empty dictionary.");
+    };
+    return emptyDict;
+  })();
+
+  Dict.merge = function ({ xref, dictArray, mergeSubDicts = false }) {
     const mergedDict = new Dict(xref);
 
-    for (let i = 0, ii = dictArray.length; i < ii; i++) {
-      const dict = dictArray[i];
-      if (!isDict(dict)) {
-        continue;
-      }
-      for (const keyName in dict._map) {
-        if (mergedDict._map[keyName] !== undefined) {
+    if (!mergeSubDicts) {
+      for (const dict of dictArray) {
+        if (!(dict instanceof Dict)) {
           continue;
         }
-        mergedDict._map[keyName] = dict._map[keyName];
+        for (const [key, value] of Object.entries(dict._map)) {
+          if (mergedDict._map[key] === undefined) {
+            mergedDict._map[key] = value;
+          }
+        }
+      }
+      return mergedDict.size > 0 ? mergedDict : Dict.empty;
+    }
+    const properties = new Map();
+
+    for (const dict of dictArray) {
+      if (!(dict instanceof Dict)) {
+        continue;
+      }
+      for (const [key, value] of Object.entries(dict._map)) {
+        let property = properties.get(key);
+        if (property === undefined) {
+          property = [];
+          properties.set(key, property);
+        }
+        property.push(value);
       }
     }
-    return mergedDict;
+    for (const [name, values] of properties) {
+      if (values.length === 1 || !(values[0] instanceof Dict)) {
+        mergedDict._map[name] = values[0];
+        continue;
+      }
+      const subDict = new Dict(xref);
+
+      for (const dict of values) {
+        if (!(dict instanceof Dict)) {
+          continue;
+        }
+        for (const [key, value] of Object.entries(dict._map)) {
+          if (subDict._map[key] === undefined) {
+            subDict._map[key] = value;
+          }
+        }
+      }
+      if (subDict.size > 0) {
+        mergedDict._map[name] = subDict;
+      }
+    }
+    properties.clear();
+
+    return mergedDict.size > 0 ? mergedDict : Dict.empty;
   };
 
   return Dict;
@@ -231,8 +277,16 @@ var Ref = (function RefClosure() {
 // The reference is identified by number and generation.
 // This structure stores only one instance of the reference.
 class RefSet {
-  constructor() {
-    this._set = new Set();
+  constructor(parent = null) {
+    if (
+      (typeof PDFJSDev === "undefined" ||
+        PDFJSDev.test("!PRODUCTION || TESTING")) &&
+      parent &&
+      !(parent instanceof RefSet)
+    ) {
+      unreachable('RefSet: Invalid "parent" value.');
+    }
+    this._set = new Set(parent && parent._set);
   }
 
   has(ref) {
@@ -245,6 +299,16 @@ class RefSet {
 
   remove(ref) {
     this._set.delete(ref.toString());
+  }
+
+  forEach(callback) {
+    for (const ref of this._set.values()) {
+      callback(ref);
+    }
+  }
+
+  clear() {
+    this._set.clear();
   }
 }
 

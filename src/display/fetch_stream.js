@@ -12,7 +12,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/* eslint no-var: error */
 
 import {
   AbortException,
@@ -36,7 +35,7 @@ function createFetchOptions(headers, withCredentials, abortController) {
   return {
     method: "GET",
     headers,
-    signal: abortController && abortController.signal,
+    signal: abortController?.signal,
     mode: "cors",
     credentials: withCredentials ? "include" : "same-origin",
     redirect: "follow",
@@ -243,13 +242,20 @@ class PDFFetchStreamRangeReader {
         this._withCredentials,
         this._abortController
       )
-    ).then(response => {
-      if (!validateResponseStatus(response.status)) {
-        throw createResponseStatusError(response.status, url);
-      }
-      this._readCapability.resolve();
-      this._reader = response.body.getReader();
-    });
+    )
+      .then(response => {
+        if (!validateResponseStatus(response.status)) {
+          throw createResponseStatusError(response.status, url);
+        }
+        this._readCapability.resolve();
+        this._reader = response.body.getReader();
+      })
+      .catch(reason => {
+        if (reason?.name === "AbortError") {
+          return;
+        }
+        throw reason;
+      });
 
     this.onProgress = null;
   }
